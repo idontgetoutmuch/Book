@@ -1,23 +1,9 @@
-
-// Naive solver for the Laplace equation.
-//	Boundary conditions are fixed on the edge of the square.
-//
-//	This method is very slow to converge for large matrices.
-//	If we were going to do it properly we'd start with a matrix a fraction of the size
-//	of the final result, solve that, then use those values to tile a larger initial
-//	matrix, solve that etc.. working our way up to the final result. Doing this would
-//	help propagate information from the boundary conditions throughout the matrix.
-//
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
 #include "Matrix.h"
 #include "Timing.h"
 
-
-// Boundary Conditions ----------------------------------------------------------------------------
-// Make the mask for the boundary conditions.
-//	Should return 0 when the point is part of the boundary, and 1 otherwise.
 double mkBoundaryMask (int width, int height, int x, int y)
 {
 	int w 	= width  - 1;
@@ -30,9 +16,6 @@ double mkBoundaryMask (int width, int height, int x, int y)
 	else					return 1;
 }
 
-
-// Make the values for the boundary conditions.
-//	Should return 0 where the point is not part of the boundary.
 double mkBoundaryValue (int width, int height, int x, int y)
 {
 	int w 	= width  - 1;
@@ -45,14 +28,6 @@ double mkBoundaryValue (int width, int height, int x, int y)
 	else					return 0;
 }
 
-
-// Apply the boundary conditions to this matrix.
-//	The mask  matrix has 0 in places where boundary conditions hold
-//	and 1 otherwise.
-//
-//	The value matrix has the boundary condition value in places where it holds,
-//	and 0 otherwise.
-//
 void applyBoundary
 	( Matrix* matDest
 	, Matrix* matBoundMask
@@ -69,9 +44,6 @@ void applyBoundary
 	}
 }
 
-
-// Relaxation -------------------------------------------------------------------------------------
-// Perform one relaxation cycle with a four point stencil for the Laplace equation.
 void relaxLaplace
 	( Matrix* matDest
 	, Matrix* matSrc)
@@ -89,15 +61,6 @@ void relaxLaplace
 	}
 }
 
-
-// Solver -----------------------------------------------------------------------------------------
-// Main solver loop.
-//	Relax the matrix, then apply boundary conditions, for some number of iterations.
-//	The values for the next iteration are written to matDest,
-//	then the matInitial and matDest buffers are swapped.
-//
-//	Returns either matInitial or matDest, depending on how many iterations we took.
-//
 Matrix* solve
 	( int iterations
 	, Matrix* matBoundMask
@@ -124,8 +87,6 @@ Matrix* solve
 	return	matTmp;
 }
 
-
-// Main -------------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
 	// Argument parsing
@@ -188,4 +149,3 @@ int main(int argc, char** argv)
 	freeMatrix (matInitial);
 	freeMatrix (matDest);
 }
-
