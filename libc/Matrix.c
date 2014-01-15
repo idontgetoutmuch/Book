@@ -6,7 +6,7 @@
 
 
 // Matrix Creation and Freeing --------------------------------------------------------------------
-// Given a function that produces each element, 
+// Given a function that produces each element,
 //	create a matrix of a given size.
 Matrix* createMatrix
 	( int width
@@ -17,11 +17,11 @@ Matrix* createMatrix
 
 	for (int y = 0; y < height; y++) {
 		data[y]	= malloc (sizeof(double) * width);
-		
+
 		for (int x = 0; x < width; x++)
 			data[y][x] = mkElem(width, height, x, y);
 	}
-	
+
 	Matrix* mat	= malloc (sizeof(Matrix));
 	mat->width	= width;
 	mat->height	= height;
@@ -34,7 +34,7 @@ void freeMatrix (Matrix* mat)
 {
 	for (int y = 0; y < mat->height; y++)
 		free(mat->data[y]);
-	
+
 	free(mat->data);
 	free(mat);
 }
@@ -66,7 +66,7 @@ Matrix* newRandomMatrix (int width, int height)
 
 // Zero Matrices ----------------------------------------------------------------------------------
 double mkZero (int width, int height, int x, int y)
-{	
+{
 	return 0;
 }
 
@@ -85,10 +85,10 @@ double	sumMatrix
 		double rowSum	= 0;
 		for(int i = 0; i < mat->width; i++)
 			rowSum	+= mat->data[j][i];
-			
+
 		totalSum	+= rowSum;
 	}
-	
+
 	return totalSum;
 }
 
@@ -102,7 +102,7 @@ void writeMatrixAsPPM
 	fprintf(file, "P3\n");
 	fprintf(file, "%d %d\n", mat->width, mat->height);
 	fprintf(file, "255\n");
-	
+
 	for (int y = 0; y < mat->height; y++)
 	for (int x = 0; x < mat->width; x++) {
 		double v = mat->data[y][x];
@@ -116,7 +116,7 @@ void writeMatrixAsPPM
 			, "%d %d %d\n"
 			, (int)(r * 255)
 			, (int)(g * 255)
-			, (int)(b * 255) );		
+			, (int)(b * 255) );
 	}
 
 	fclose(file);
@@ -130,26 +130,12 @@ void writeMatrixAsTextFile
 	FILE* file	= fopen(fileName, "w+");
 	fprintf(file, "MATRIX\n");
 	fprintf(file, "%d %d\n", mat->width, mat->height);
-	
+
 	for (int y = 0; y < mat->height; y++)
 	for (int x = 0; x < mat->width; x++) {
 		double v = mat->data[y][x];
-		
-		fprintf (file, "%.14f\n", v);	
+
+		fprintf (file, "%.14f\n", v);
 	}
-	
+
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

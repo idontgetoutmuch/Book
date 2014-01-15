@@ -20,12 +20,26 @@ double mkBoundaryValue (int width, int height, int x, int y)
 {
 	int w 	= width  - 1;
 	int h	= height - 1;
+	double u, v;
 
-	if 	(x == 0 && y > 0 && y < h)	return 80;
-	else if (y == 0 && x > 0 && x < w)	return 20;
-	else if (x == w && y > 0 && y < h)	return 0;
-	else if	(y == h && x > 0 && x < w)	return 180;
-	else					return 0;
+	if 	(x == 0 && y > 0 && y < h) {
+	  v = ((double) y) / ((double) h);
+	  return v / (1 + v*v);
+	}
+	else if (y == 0 && x > 0 && x < w) {
+	  return 0;
+	}
+	else if (x == w && y > 0 && y < h) {
+	  v = ((double) y) / ((double) h);
+	  return v / (4 + v*v);
+	}
+	else if (y == h && x > 0 && x < w) {
+	  u = ((double) x) / ((double) w);
+	  return 1 / ((1 + u)*(1 + u) + 1);
+	}
+	else {
+	  return 0;
+	}
 }
 
 void applyBoundary
@@ -66,7 +80,7 @@ Matrix* solve
 	, Matrix* matBoundMask
 	, Matrix* matBoundValue
 	, Matrix* matInitial
-	, Matrix* matDest)	// Where to write the result of the first iteration.
+	, Matrix* matDest)
 {
 	assert(matricesHaveSameShape(matDest, matInitial));
 	assert(matricesHaveSameShape(matDest, matBoundValue));
@@ -82,16 +96,13 @@ Matrix* solve
 		matDest		= matInitial;
 		matInitial	= matTmp;
 	}
-
-	// Return result of last iteration.
 	return	matTmp;
 }
 
 int main(int argc, char** argv)
 {
-	// Argument parsing
-	if (argc != 5) {
-		printf("Usage: laplace <width> <height> <iterations> <output file.ppm>\n");
+	if (argc != 4) {
+		printf("Usage: laplace <width> <height> <iterations>\n");
 		printf("  width, height  :: Int      The width and height of the matrix\n");
 		printf("  iterations     :: Int      Number of iterations to use in the solver\n");
 		exit(0);
@@ -117,20 +128,15 @@ int main(int argc, char** argv)
 
 	char* fileName	= argv[4];
 
+        printf("%i, %i, %i\n", width, height, iterations);
 
-	// Setup boundary condition matrices
 	Matrix*	matBoundMask	= createMatrix (width, height, mkBoundaryMask);
 	Matrix*	matBoundValue	= createMatrix (width, height, mkBoundaryValue);
 
-	// Set the initial matrix to the same as the boundary conditions.
 	Matrix*	matInitial	= createMatrix (width, height, mkBoundaryValue);
 
-	// A destination buffer, to write the next iteration into.
 	Matrix* matDest		= createMatrix (width, height, mkBoundaryValue);
 
-	// Run the solver.
-	//	The result is either the matInitial or matBuffer, depending
-	//	on how many iterations we took.
 	struct benchtime *bt = bench_begin();
 
 	Matrix* matFinal
@@ -140,10 +146,14 @@ int main(int argc, char** argv)
 
 	bench_done(bt);
 
-	// Write the output to a PPM file.
-	writeMatrixAsPPM(fileName, matFinal);
+        int i, j;
 
-	// Cleanup
+        for (i = 0; i < width; i++) {
+          for (j = 0; j < height; j++) {
+            printf("%16.10e\n", matFinal->data[i][j]);
+          }
+        }
+
 	freeMatrix (matBoundMask);
 	freeMatrix (matBoundValue);
 	freeMatrix (matInitial);
