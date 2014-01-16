@@ -36,6 +36,13 @@ BlogLiteratelyD Chap1Expanded.lhs > Chap1.html
 
 Sadly, the C doesn't get syntax highlighting but this will do for now.
 
+Acknowledgements
+================
+
+A lot of the code for this post is taken from the
+[repa](http://repa.ouroborus.net) package itself. Many thanks to the
+repa team for providing the package and the example code.
+
 Laplace's Equation: The Five Point Formula
 ==========================================
 
@@ -64,13 +71,119 @@ $$
 u(x, y) = \frac{y}{(1 + x)^2 + y^2}
 $$
 
+
+> {-# LANGUAGE BangPatterns #-}
+> import Data.Array.Repa                  as R
+> import Data.Array.Repa.Unsafe           as R
+> import qualified Data.Array.Repa.Shape  as S
+
 > import Data.Array.Repa.IO.Timing
 
 > import SolverGet                as SG
 > import SolverStencil            as SS
-> import Data.Array.Repa          as R
 > import Prelude                  as P
 > import Text.Printf
+> import Options.Applicative
+
+
+
+-- | Solver for the Laplace equation.
+
+> solveLaplace
+> 	:: Monad m
+>         => Int			-- ^ Number of iterations to use.
+>         -> Array U DIM2 Double	-- ^ Boundary value mask.
+>         -> Array U DIM2 Double	-- ^ Boundary values.
+>         -> Array U DIM2 Double	-- ^ Initial state.
+>         -> m (Array U DIM2 Double)
+>
+> solveLaplace steps arrBoundMask arrBoundValue arrInit
+>  = go steps arrInit
+>   where
+>     go !i !arr
+>       | i == 0
+>       = return     arr
+>
+>       | otherwise
+>       = do arr' <- relaxLaplace arrBoundMask arrBoundValue arr
+>            go (i - 1) arr'
+
+
+-- | Perform matrix relaxation for the Laplace equation,
+--	using a stencil function.
+--
+--   Computation fn is
+--	u'(i,j) = (u(i-1,j) + u(i+1,j) + u(i,j-1) + u(i,j+1)) / 4
+--
+--  Apply the boundary conditions to this matrix.
+--	The mask  matrix has 0 in places where boundary conditions hold
+--	and 1 otherwise.
+--
+--	The value matrix has the boundary condition value in places where it holds,
+--	and 0 otherwise.
+--
+
+> relaxLaplace
+>   :: Monad m
+>      => Array U DIM2 Double	-- ^ Boundary condition mask
+>      -> Array U DIM2 Double	-- ^ Boundary condition values
+>      -> Array U DIM2 Double	-- ^ Initial matrix
+>      -> m (Array U DIM2 Double)
+>
+> relaxLaplace arrBoundMask arrBoundValue arr
+>   = computeP
+>     $ R.zipWith (+) arrBoundValue
+>     $ R.zipWith (*) arrBoundMask
+>     $ unsafeTraverse arr id elemFn
+>   where
+>     _ :. height :. width
+>       = extent arr
+>
+>     elemFn !get !d@(sh :. i :. j)
+>       = if isBorder i j
+>         then  get d
+>         else (get (sh :. (i-1) :. j)
+>               +   get (sh :. i     :. (j-1))
+>               +   get (sh :. (i+1) :. j)
+>               +   get (sh :. i     :. (j+1))) / 4
+
+	-- Check if this element is on the border of the matrix.
+	-- If so we can't apply the stencil because we don't have all the neighbours.
+
+>     isBorder !i !j
+>       =  (i == 0) || (i >= width  - 1)
+>          || (j == 0) || (j >= height - 1)
+
+
+
+
+> data Options =
+>   Options
+>   { gridWidth  :: Int
+>   , gridHeight :: Int
+>   , iterations :: Int
+>   } deriving Show
+
+> options :: Parser Options
+> options = Options
+>   <$> option
+>       (    long "width"
+>         <> short 'w'
+>         <> metavar "INT"
+>         <> help "Width of grid"
+>       )
+>   <*> option
+>       (    long "depth"
+>         <> short 'd'
+>         <> metavar "INT"
+>         <> help "Height (or depth) of grid"
+>       )
+>   <*> option
+>       (    long "iterations"
+>         <> short 'i'
+>         <> metavar "INT"
+>         <> help "Number of iterations to perform"
+>       )
 
 > gridSize :: Int
 > gridSize = 2
@@ -78,10 +191,15 @@ $$
 > midPoint :: Int
 > midPoint = gridSize `div` 2
 
-> main :: IO ()
-> main = do
->   bv <- boundValue
->   bm <- boundMask
+> main = execParser opts >>= main'
+>   where
+>     opts = info (helper <*> options)
+>            fullDesc
+
+> main' :: Options -> IO ()
+> main' os = do
+>   bv <- boundValue (gridWidth os) (gridHeight os)
+>   bm <- boundMask  (gridWidth os) (gridHeight os)
 >   sl1 <- SG.solveLaplace 1 bm bv bv
 >   sl2 <- analyticValue
 >   putStrLn $ show $ sl1!(Z :. midPoint :. midPoint)
@@ -89,29 +207,31 @@ $$
 >   let vss = toList sl1
 >   mapM_ (\v -> putStrLn $ printf "%16.10e" v) vss
 
-> boundValue :: Monad m => m (Array U DIM2 Double)
-> boundValue = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f
+> boundValue :: Monad m => Int -> Int -> m (Array U DIM2 Double)
+> boundValue gridSizeX gridSizeY = computeP $
+>                                  fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
 >   where
->     f (Z :. ix :. iy) | iy == 0        = 0
->     f (Z :. ix :. iy) | iy == gridSize = 1 / ((1 + x)^2 + 1)
+>     f (Z :. ix :. iy) | iy == 0         = 0
+>     f (Z :. ix :. iy) | iy == gridSizeY = 1 / ((1 + x)^2 + 1)
 >       where
->         x = fromIntegral ix / fromIntegral gridSize
->     f (Z :. ix :. iy) | ix == 0        = y / (1 + y^2)
+>         x = fromIntegral ix / fromIntegral gridSizeX
+>     f (Z :. ix :. iy) | ix == 0         = y / (1 + y^2)
 >       where
->         y = fromIntegral iy / fromIntegral gridSize
->     f (Z :. ix :. iy) | ix == gridSize = y / (4 + y^2)
+>         y = fromIntegral iy / fromIntegral gridSizeY
+>     f (Z :. ix :. iy) | ix == gridSizeX = y / (4 + y^2)
 >       where
->         y = fromIntegral iy / fromIntegral gridSize
->     f _                                = 0
+>         y = fromIntegral iy / fromIntegral gridSizeY
+>     f _                                 = 0
 
-> boundMask :: Monad m => m (Array U DIM2 Double)
-> boundMask = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f
+> boundMask :: Monad m => Int -> Int -> m (Array U DIM2 Double)
+> boundMask gridSizeX gridSizeY = computeP $
+>                                 fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
 >   where
->     f (Z :. ix :. iy) | iy == 0        = 0
->     f (Z :. ix :. iy) | iy == gridSize = 0
->     f (Z :. ix :. iy) | ix == 0        = 0
->     f (Z :. ix :. iy) | ix == gridSize = 0
->     f _                                = 1
+>     f (Z :. ix :. iy) | iy == 0         = 0
+>     f (Z :. ix :. iy) | iy == gridSizeY = 0
+>     f (Z :. ix :. iy) | ix == 0         = 0
+>     f (Z :. ix :. iy) | ix == gridSizeX = 0
+>     f _                                 = 1
 
 > analyticValue :: Monad m => m (Array U DIM2 Double)
 > analyticValue = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f

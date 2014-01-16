@@ -132,9 +132,7 @@ int main(int argc, char** argv)
 
 	Matrix*	matBoundMask	= createMatrix (width, height, mkBoundaryMask);
 	Matrix*	matBoundValue	= createMatrix (width, height, mkBoundaryValue);
-
 	Matrix*	matInitial	= createMatrix (width, height, mkBoundaryValue);
-
 	Matrix* matDest		= createMatrix (width, height, mkBoundaryValue);
 
 	struct benchtime *bt = bench_begin();
