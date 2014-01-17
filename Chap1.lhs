@@ -2,6 +2,10 @@
 % Dominic Steinitz
 % 15th January 2014
 
+---
+bibliography: Book.bib
+---
+
 Colophon
 ========
 
@@ -43,18 +47,45 @@ A lot of the code for this post is taken from the
 [repa](http://repa.ouroborus.net) package itself. Many thanks to the
 repa team for providing the package and the example code.
 
+Haskell Preamble
+================
+
+> {-# OPTIONS_GHC -Wall                      #-}
+> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
+> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
+> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
+> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
+> {-# OPTIONS_GHC -fno-warn-orphans          #-}
+
+> {-# LANGUAGE BangPatterns #-}
+
+> import Data.Array.Repa                  as R
+> import Data.Array.Repa.Unsafe           as R
+
+> import qualified SolverStencil          as SS
+> import Prelude                          as P
+> import Text.Printf
+> import Options.Applicative
+
 Laplace's Equation: The Five Point Formula
 ==========================================
 
-In this chapter, we show how to apply a numerical method to [Laplace's](Laplace) equation:
+We show how to apply finite difference methods to [Laplace's](Laplace) equation:
 
   [Laplace]: http://en.wikipedia.org/wiki/Laplace's_equation
 
 $$
-\nabla^2 \phi = 0
+\nabla^2 u = 0
 $$
 
-We take the example from Chapter 8 of "A First Course in the Numerical Analysis of Differential Equations" where the boundary conditions are:
+where
+
+$$
+\nabla^2 = \frac{\partial^2}{\partial x^2} +\frac{\partial^2}{\partial y^2}
+$$
+
+We take the example from [@iserles2009first Chapter 8] where the
+boundary conditions are:
 
 $$
 \begin{aligned}
@@ -71,23 +102,26 @@ $$
 u(x, y) = \frac{y}{(1 + x)^2 + y^2}
 $$
 
+We disretize (much more detail from Iserles' book needed here).
 
-> {-# LANGUAGE BangPatterns #-}
-> import Data.Array.Repa                  as R
-> import Data.Array.Repa.Unsafe           as R
-> import qualified Data.Array.Repa.Shape  as S
+$$
+\begin{aligned}
+\frac{\partial^2 u}{\partial x^2}\mathop{\Bigg|_{x = x_0 + k\Delta x}}_{y = y_0 + l\Delta x} &= \frac{1}{(\Delta x)^2}\Delta_{0,x}^2 u_{k,l} + \mathcal{O}((\Delta x)^2) \\
+\frac{\partial^2 u}{\partial y^2}\mathop{\Bigg|_{x = x_0 + k\Delta x}}_{y = y_0 + l\Delta x} &= \frac{1}{(\Delta x)^2}\Delta_{0,y}^2 u_{k,l} + \mathcal{O}((\Delta x)^2)
+\end{aligned}
+$$
 
-> import Data.Array.Repa.IO.Timing
+where the central difference operator $\Delta_0$ is defined as
 
-> import SolverGet                as SG
-> import SolverStencil            as SS
-> import Prelude                  as P
-> import Text.Printf
-> import Options.Applicative
+$$
+(\Delta_0 z)_k \triangleq z_{k + \frac{1}{2}} - z_{k - \frac{1}{2}}
+$$
 
+We are therefore led to consider the *five point* difference scheme.
 
-
--- | Solver for the Laplace equation.
+$$
+\frac{1}{(\Delta x)^2}(\Delta_{0,x}^2 + \Delta_{0,y}^2) u_{k,l} = 0
+$$
 
 > solveLaplace
 > 	:: Monad m
@@ -191,6 +225,7 @@ $$
 > midPoint :: Int
 > midPoint = gridSize `div` 2
 
+> main :: IO ()
 > main = execParser opts >>= main'
 >   where
 >     opts = info (helper <*> options)
@@ -200,7 +235,7 @@ $$
 > main' os = do
 >   bv <- boundValue (gridWidth os) (gridHeight os)
 >   bm <- boundMask  (gridWidth os) (gridHeight os)
->   sl1 <- SG.solveLaplace 1 bm bv bv
+>   sl1 <- solveLaplace 1 bm bv bv
 >   sl2 <- analyticValue
 >   putStrLn $ show $ sl1!(Z :. midPoint :. midPoint)
 >   putStrLn $ show $ sl2!(Z :. midPoint :. midPoint)
@@ -258,4 +293,5 @@ Matrix
 ~~~~ {.c include="libc/Matrix.c"}
 ~~~~
 
-Some words after the example.
+Bibliography
+============
