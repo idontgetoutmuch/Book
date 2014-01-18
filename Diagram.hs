@@ -15,22 +15,24 @@ module Main (main) where
 import Diagrams.Prelude
 import Diagrams.Backend.SVG.CmdLine
 
+import Data.List
+import Data.List.Split
 
 gridLineWidth :: Double
 gridLineWidth = 0.001
 
-cSize :: Double
-cSize = 0.01
+tick :: (Int, Int) -> Diagram B R2
+tick  (n, m) = pointDiagram origin # named (n, m)
 
 grid :: Int -> Int -> Diagram B R2
 grid n m = mconcat lineXs <>
-            mconcat lineYs <>
-            mconcat intersections
+           mconcat lineYs <>
+           (intersections # translate (r2 (0.0,1.0)) # showOrigin)
 
   where
 
-    deltaX = 1 / fromIntegral n
-    deltaY = 1 / fromIntegral m
+    deltaX  = 1 / fromIntegral n
+    deltaY  = 1 / fromIntegral m
 
     ns = [0..n]
     ms = [0..m]
@@ -50,14 +52,35 @@ grid n m = mconcat lineXs <>
               lc blue #
               lw gridLineWidth
 
-    intersections = [ tick (x, y) | x <- ns, y <- ms ]
+    intersections = hcat $
+                    intersperse (strutX deltaX) $
+                    map vcat $
+                    map (intersperse (strutY deltaY)) $
+                    chunksOf (m + 1) [ tick (n, m) | n <- ns, m <- ms ]
 
-    tick (n, m) = endpt #
-                  translate (r2 (deltaX * fromIntegral n, deltaY * fromIntegral m)) #
-                  named (n, m)
+cSize :: Double
+cSize = 0.03
 
-    endpt       = circle (cSize /2 ) # fc blue # opacity 0.5 # lw 0
+intPt, bndPt :: Diagram B R2
+intPt = circle (cSize /2 ) # fc blue # opacity 0.5 # lw 0
+bndPt = circle (cSize /2 ) # fc red  # opacity 0.5 # lw 0
 
+intPts :: IsName n => [n] -> Diagram B R2 -> Diagram B R2
+intPts = flip $ foldr (\n -> withName n (atop . place intPt . location))
+
+bndPts :: IsName n => [n] -> Diagram B R2 -> Diagram B R2
+bndPts = flip $ foldr (\n -> withName n (atop . place bndPt . location))
+
+n, m :: Int
+n = 10
+m = 5
 
 main :: IO ()
-main = mainWith $ grid 10 5
+main = mainWith $ (grid n m) #
+       connect (0 :: Int, 0 :: Int) (n :: Int, 4 :: Int) #
+       connect (0 :: Int, 0 :: Int) ( 0 :: Int, m :: Int) #
+       intPts [(n, m)        | n <- [1,2..n - 1] :: [Int], m <- [1,2..m - 1] :: [Int]] #
+       bndPts [(0 :: Int, m       ) |                  m <- [0..m]] #
+       bndPts [(n,        0 :: Int) |                  n <- [0..n]] #
+       bndPts [(n,        m       ) |                  m <- [0..m]] #
+       bndPts [(n,        m       ) |                  n <- [0..n]]
