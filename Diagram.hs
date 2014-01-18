@@ -22,22 +22,42 @@ gridLineWidth = 0.001
 cSize :: Double
 cSize = 0.01
 
-grid :: [Double] -> [Double] -> Diagram B R2
-grid xs ys = mconcat lineXs <> mconcat lineYs
+grid :: Int -> Int -> Diagram B R2
+grid n m = mconcat lineXs <>
+            mconcat lineYs <>
+            mconcat intersections
+
   where
-    maxX   = maximum xs
-    maxY   = maximum ys
 
-    lineYs = Prelude.map lineY xs
+    deltaX = 1 / fromIntegral n
+    deltaY = 1 / fromIntegral m
+
+    ns = [0..n]
+    ms = [0..m]
+    xs = map ((* deltaX)  . fromIntegral) ns
+    ys = map ((* deltaY)  . fromIntegral) ms
+
     lineXs = Prelude.map lineX ys
+    lineYs = Prelude.map lineY xs
 
-    lineY x = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lc blue
-    lineX y = fromOffsets [r2 (0, y), r2 (maxY, 0)] # lc red
+    lineX y = fromOffsets [r2 (1.0, 0.0) ^-^ r2 (0.0, 0.0)] #
+              translate (r2 (0.0, y)) #
+              lc red #
+              lw gridLineWidth
 
-    tick (x, y) v = endpt # translate (tickShift x y)
-    tickShift x y = r2 (x, y)
-    endpt         = circle (cSize /2 ) # fc blue # opacity 0.5 # lw 0
+    lineY x = fromOffsets [r2 (0.0, 1.0) ^-^ r2 (0.0, 0.0)] #
+              translate (r2 (x, 0.0)) #
+              lc blue #
+              lw gridLineWidth
+
+    intersections = [ tick (x, y) | x <- ns, y <- ms ]
+
+    tick (n, m) = endpt #
+                  translate (r2 (deltaX * fromIntegral n, deltaY * fromIntegral m)) #
+                  named (n, m)
+
+    endpt       = circle (cSize /2 ) # fc blue # opacity 0.5 # lw 0
+
 
 main :: IO ()
-main = mainWith $ grid (map ((* 0.05) . fromIntegral) [0..20])
-                       (map ((* 0.1)  . fromIntegral) [0..10])
+main = mainWith $ grid 10 5
