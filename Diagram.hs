@@ -27,7 +27,7 @@ tick  (n, m) = pointDiagram origin # named (n, m)
 gridWithHalves :: Int -> Int -> Diagram B R2
 gridWithHalves n m = mconcat lineXs <>
            mconcat lineYs <>
-           (intersections # translate (r2 (0.0,1.0)))
+           (intersections # translate (r2 (0.0 - delta2X ,1.0 + delta2Y)))
 
   where
 
@@ -38,8 +38,8 @@ gridWithHalves n m = mconcat lineXs <>
 
     ns  = [0..n]
     ms  = [0..m]
-    n2s = [0..2 * n]
-    m2s = [0..2 * m]
+    n2s = [0..2 * n + 2]
+    m2s = [0..2 * m + 2]
 
     xs = map ((* deltaX)  . fromIntegral) ns
     ys = map ((* deltaY)  . fromIntegral) ms
@@ -61,7 +61,7 @@ gridWithHalves n m = mconcat lineXs <>
                     intersperse (strutX delta2X) $
                     map vcat $
                     map (intersperse (strutY delta2Y)) $
-                    chunksOf (2 * m + 1) [ tick (n, m) | n <- n2s, m <- m2s ]
+                    chunksOf (2 * m + 1 + 2) [ tick (n, m) | n <- n2s, m <- m2s ]
 
 grid :: Int -> Int -> Diagram B R2
 grid n m = mconcat lineXs <>
@@ -117,23 +117,23 @@ n, m :: Int
 n = 6
 m = 4
 
-fivePointList :: [(Int, Int)]
-fivePointList = [ (3, 3)
-                , (3, 5)
-                , (5, 5)
-                , (5, 7)
-                , (7, 7)
-                , (7, 5)
-                , (9, 5)
-                , (9, 3)
-                , (7, 3)
-                , (7, 1)
-                , (5, 1)
-                , (5, 3)
-                , (3, 3)
-                ]
+fivePointList :: Int -> Int -> [(Int, Int)]
+fivePointList n m = [ (n - 1, m - 1)
+                    , (n - 1, m + 1)
+                    , (n + 1, m + 1)
+                    , (n + 1, m + 3)
+                    , (n + 3, m + 3)
+                    , (n + 3, m + 1)
+                    , (n + 5, m + 1)
+                    , (n + 5, m - 1)
+                    , (n + 3, m - 1)
+                    , (n + 3, m - 3)
+                    , (n + 1, m - 3)
+                    , (n + 1, m - 1)
+                    , (n - 1, m - 1)
+                    ]
 
-fivePointPairs = zip fivePointList (tail fivePointList)
+fivePointPairs = zip (fivePointList 9 3) (tail (fivePointList 9 3))
 
 fiveLine (a, b) =
   withName a $ \x1 ->
@@ -145,11 +145,12 @@ fiveLines = foldr (.) id (map fiveLine fivePointPairs)
 example :: Diagram B R2
 example = (gridWithHalves n m) #
           fiveLines #
-          intPts [(n, m)        | n <- [1,2..n - 1] :: [Int], m <- [1,2..m - 1] :: [Int]] #
-          bndPts [(0 :: Int, m       ) |                  m <- [0..m]] #
-          bndPts [(n,        0 :: Int) |                  n <- [0..n]] #
-          bndPts [(n,        m       ) |                  m <- [0..m]] #
-          bndPts [(n,        m       ) |                  n <- [0..n]]
+          intPts [(n + 1,          m + 1) | n <- [2,4..2 * n - 1] :: [Int]
+                                          , m <- [2,4..2 * m - 1] :: [Int]] #
+          bndPts [(1 :: Int,  m + 1     ) | m <- [0,2..2 * m]] #
+          bndPts [(n + 1,     1 :: Int  ) | n <- [0,2..2 * n]] #
+          bndPts [(2 * n + 1, m + 1     ) | m <- [0,2..2 * m]] #
+          bndPts [(n + 1,     2 * m + 1 ) | n <- [0,2..2 * n]]
 
 example1 :: Diagram B R2
 example1 = (grid n m) #
