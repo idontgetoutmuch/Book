@@ -6,6 +6,23 @@
 bibliography: Book.bib
 ---
 
+\usepackage{color}
+
+Introduction
+============
+
+We are going to solve Laplace's equation $\nabla^2 \phi = 0 $ in 2
+dimensions. One motivation for doing so is that it is a moderately
+simple equation (in so far as partial differential equations are
+simple) that has been well studied for centuries. We shall give an
+example of its use in the steady state heat equation. Furthermore, the
+Laplacian itself is also used computer vision for edge detection
+(reference required).
+
+In Haskell terms this gives us the opportunity to use the repa
+library, compare it against a similar implementation in C and use
+H(?)Lapack and similar against base LAPACK itself.
+
 Colophon
 ========
 
@@ -46,6 +63,9 @@ Acknowledgements
 A lot of the code for this post is taken from the
 [repa](http://repa.ouroborus.net) package itself. Many thanks to the
 repa team for providing the package and the example code.
+
+The Steady State Heat Equation
+==============================
 
 Haskell Preamble
 ================
@@ -122,6 +142,58 @@ We are therefore led to consider the *five point* difference scheme.
 $$
 \frac{1}{(\Delta x)^2}(\Delta_{0,x}^2 + \Delta_{0,y}^2) u_{k,l} = 0
 $$
+
+We can re-write this explicitly as
+
+$$
+u_{k-1,l} + u_{k+1,l} + u_{k,l-1} + u_{k,l+1} - 4u_{k,l} = 0
+$$
+
+Specifically for the grid point (2,1) in a $4 \times 4$ grid we have
+
+$$
+{\color{blue}{u_{1,1}}} + {\color{red}{u_{3,1}}} + {\color{red}{u_{2,0}}} + {\color{blue}{u_{2,2}}} - 4{\color{blue}{u_{2,1}}} = 0
+$$
+
+where blue indicates that the point is an interior point and red
+indicates that the point is a boundary point.
+
+```{.dia height='500'}
+import Diagram
+dia = example
+```
+
+$$
+\begin{bmatrix}
+-4 &  1 &  1 &  0 \\
+ 1 & -4 &  0 &  1 \\
+ 1 &  0 & -4 &  1 \\
+ 0 &  1 &  1 & -4
+\end{bmatrix}
+\begin{bmatrix}
+{\color{blue}{u_{1,1}}} \\
+{\color{blue}{u_{2,1}}} \\
+{\color{blue}{u_{1,2}}} \\
+{\color{blue}{u_{2,2}}}
+\end{bmatrix}
+=
+\begin{bmatrix}
+-{\color{red}{u_{1,0}}} - {\color{red}{u_{0,1}}} \\
+-{\color{red}{u_{2,0}}} - {\color{red}{u_{3,1}}} \\
+-{\color{red}{u_{0,2}}} - {\color{red}{u_{1,3}}} \\
+-{\color{red}{u_{2,3}}} - {\color{red}{u_{3,2}}}
+\end{bmatrix}
+$$
+
+Jacobi iteration given $A\boldsymbol{x} = \boldsymbol{b}$
+
+$$
+\boldsymbol{x}_i^{[k+1]} = \frac{1}{A_{i,i}}\Bigg[\boldsymbol{b}_i - \sum_{j \neq i} A_{i,j}\boldsymbol{x}_j^{[k]}\Bigg]
+$$
+
+Computational stencil as in page 149?
+
+
 
 > solveLaplace
 > 	:: Monad m

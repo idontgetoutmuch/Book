@@ -10,10 +10,13 @@
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
-module Main (main) where
+module Diagram (
+    example
+  , main
+  ) where
 
 import Diagrams.Prelude
-import Diagrams.Backend.SVG.CmdLine
+import Diagrams.Backend.Cairo.CmdLine
 
 import Data.List
 import Data.List.Split
@@ -63,49 +66,15 @@ gridWithHalves n m = mconcat lineXs <>
                     map (intersperse (strutY delta2Y)) $
                     chunksOf (2 * m + 1 + 2) [ tick (n, m) | n <- n2s, m <- m2s ]
 
-grid :: Int -> Int -> Diagram B R2
-grid n m = mconcat lineXs <>
-                     mconcat lineYs <>
-                     (intersections # translate (r2 (0.0,1.0)))
-
-  where
-
-    deltaX  = 1 / fromIntegral n
-    deltaY  = 1 / fromIntegral m
-
-    ns = [0..n]
-    ms = [0..m]
-    xs = map ((* deltaX)  . fromIntegral) ns
-    ys = map ((* deltaY)  . fromIntegral) ms
-
-    lineXs = Prelude.map lineX ys
-    lineYs = Prelude.map lineY xs
-
-    lineX y = fromOffsets [r2 (1.0, 0.0) ^-^ r2 (0.0, 0.0)] #
-              translate (r2 (0.0, y)) #
-              lc red #
-              lw gridLineWidth
-
-    lineY x = fromOffsets [r2 (0.0, 1.0) ^-^ r2 (0.0, 0.0)] #
-              translate (r2 (x, 0.0)) #
-              lc blue #
-              lw gridLineWidth
-
-    intersections = hcat $
-                    intersperse (strutX deltaX) $
-                    map vcat $
-                    map (intersperse (strutY deltaY)) $
-                    chunksOf (m + 1) [ tick (n, m) | n <- ns, m <- ms ]
-
 cSize :: Double
 cSize = 0.03
 
 intPt, bndPt :: Diagram B R2
-intPt = circle (cSize /2 ) # fc blue # opacity 0.5 # lw 0
-bndPt = circle (cSize /2 ) # fc red  # opacity 0.5 # lw 0
+intPt = circle (cSize / 2) # fc blue # opacity 0.5 # lw 0
+bndPt = circle (cSize / 2) # fc red  # opacity 0.5 # lw 0
 
-genPt :: Colour Double -> Double -> Diagram B R2
-genPt h o = circle (cSize /2 ) # fc h  # opacity o # lw 0
+txtPt :: String -> Diagram B R2
+txtPt t = circle cSize # opacity 0.0 # lw 0.0 === text t # scaleX 0.03 # scaleY 0.03
 
 intPts :: IsName n => [n] -> Diagram B R2 -> Diagram B R2
 intPts = flip $ foldr (\n -> withName n (atop . place intPt . location))
@@ -114,8 +83,8 @@ bndPts :: IsName n => [n] -> Diagram B R2 -> Diagram B R2
 bndPts = flip $ foldr (\n -> withName n (atop . place bndPt . location))
 
 n, m :: Int
-n = 6
-m = 4
+n = 3
+m = 3
 
 fivePointList :: Int -> Int -> [(Int, Int)]
 fivePointList n m = [ (n - 1, m - 1)
@@ -133,15 +102,20 @@ fivePointList n m = [ (n - 1, m - 1)
                     , (n - 1, m - 1)
                     ]
 
-fivePointPairs = zip (fivePointList 9 3) (tail (fivePointList 9 3))
+-- FIXME: Parameterize this so if we change m and n we get a sensible stencil
+fivePointPairs :: [((Int, Int), (Int, Int))]
+fivePointPairs = zip (fivePointList 3 3) (tail (fivePointList 3 3))
 
+fiveLine :: (IsName a, IsName b) => (a, b) -> Diagram B R2 -> Diagram B R2
 fiveLine (a, b) =
   withName a $ \x1 ->
   withName b $ \x2 ->
   atop ((location x1 ~~ location x2) # lc black # lw 0.003 dashing [0.01,0.01] 0)
 
+fiveLines :: Diagram B R2 -> Diagram B R2
 fiveLines = foldr (.) id (map fiveLine fivePointPairs)
 
+-- FIXME: Also parameterize this
 example :: Diagram B R2
 example = (gridWithHalves n m) #
           fiveLines #
@@ -150,17 +124,12 @@ example = (gridWithHalves n m) #
           bndPts [(1 :: Int,  m + 1     ) | m <- [0,2..2 * m]] #
           bndPts [(n + 1,     1 :: Int  ) | n <- [0,2..2 * n]] #
           bndPts [(2 * n + 1, m + 1     ) | m <- [0,2..2 * m]] #
-          bndPts [(n + 1,     2 * m + 1 ) | n <- [0,2..2 * n]]
-
-example1 :: Diagram B R2
-example1 = (grid n m) #
-           connect (0 :: Int, 0 :: Int) (n :: Int, m `div` 2 :: Int) #
-           connect (0 :: Int, 0 :: Int) ( n `div` 2 :: Int, m :: Int) #
-           intPts [(n, m)        | n <- [1,2..n - 1] :: [Int], m <- [1,2..m - 1] :: [Int]] #
-           bndPts [(0 :: Int, m       ) |                  m <- [0..m]] #
-           bndPts [(n,        0 :: Int) |                  n <- [0..n]] #
-           bndPts [(n,        m       ) |                  m <- [0..m]] #
-           bndPts [(n,        m       ) |                  n <- [0..n]]
+          bndPts [(n + 1,     2 * m + 1 ) | n <- [0,2..2 * n]] #
+          withName (3  :: Int,  3 :: Int) (atop . place (txtPt "u_11" # fc blue) . location) #
+          withName (5 :: Int,  3 :: Int) (atop . place (txtPt "u_21" # fc blue) . location) #
+          withName (7 :: Int,  3 :: Int) (atop . place (txtPt "u_31" # fc red) . location) #
+          withName (5 :: Int,  1 :: Int) (atop . place (txtPt "u_20" # fc red) . location) #
+          withName (5 :: Int,  5 :: Int) (atop . place (txtPt "u_22" # fc blue) . location)
 
 main :: IO ()
-main = mainWith (example ||| strutX 0.1 ||| example1)
+main = mainWith example
