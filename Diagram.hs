@@ -82,10 +82,6 @@ intPts = flip $ foldr (\n -> withName n (atop . place intPt . location))
 bndPts :: IsName n => [n] -> Diagram B R2 -> Diagram B R2
 bndPts = flip $ foldr (\n -> withName n (atop . place bndPt . location))
 
-n, m :: Int
-n = 3
-m = 3
-
 fivePointList :: Int -> Int -> [(Int, Int)]
 fivePointList n m = [ (n - 1, m - 1)
                     , (n - 1, m + 1)
@@ -102,9 +98,9 @@ fivePointList n m = [ (n - 1, m - 1)
                     , (n - 1, m - 1)
                     ]
 
--- FIXME: Parameterize this so if we change m and n we get a sensible stencil
-fivePointPairs :: [((Int, Int), (Int, Int))]
-fivePointPairs = zip (fivePointList 3 3) (tail (fivePointList 3 3))
+fivePointPairs :: Int -> Int -> [((Int, Int), (Int, Int))]
+fivePointPairs n m = let pts = fivePointList n m
+                     in zip pts (tail pts)
 
 fiveLine :: (IsName a, IsName b) => (a, b) -> Diagram B R2 -> Diagram B R2
 fiveLine (a, b) =
@@ -112,24 +108,31 @@ fiveLine (a, b) =
   withName b $ \x2 ->
   atop ((location x1 ~~ location x2) # lc black # lw 0.003 dashing [0.01,0.01] 0)
 
-fiveLines :: Diagram B R2 -> Diagram B R2
-fiveLines = foldr (.) id (map fiveLine fivePointPairs)
+fiveLines :: Int -> Int -> Diagram B R2 -> Diagram B R2
+fiveLines n m = foldr (.) id (map fiveLine $ fivePointPairs n m)
 
--- FIXME: Also parameterize this
-example :: Diagram B R2
-example = (gridWithHalves n m) #
-          fiveLines #
-          intPts [(n + 1,          m + 1) | n <- [2,4..2 * n - 1] :: [Int]
-                                          , m <- [2,4..2 * m - 1] :: [Int]] #
-          bndPts [(1 :: Int,  m + 1     ) | m <- [0,2..2 * m]] #
-          bndPts [(n + 1,     1 :: Int  ) | n <- [0,2..2 * n]] #
-          bndPts [(2 * n + 1, m + 1     ) | m <- [0,2..2 * m]] #
-          bndPts [(n + 1,     2 * m + 1 ) | n <- [0,2..2 * n]] #
-          withName (3  :: Int,  3 :: Int) (atop . place (txtPt "u_11" # fc blue) . location) #
-          withName (5 :: Int,  3 :: Int) (atop . place (txtPt "u_21" # fc blue) . location) #
-          withName (7 :: Int,  3 :: Int) (atop . place (txtPt "u_31" # fc red) . location) #
-          withName (5 :: Int,  1 :: Int) (atop . place (txtPt "u_20" # fc red) . location) #
-          withName (5 :: Int,  5 :: Int) (atop . place (txtPt "u_22" # fc blue) . location)
+annotate :: String -> Colour Double -> Int -> Int -> Diagram B R2
+annotate s h n m = txtPt (s ++ "_" ++ show n ++ show m) # fc h
+
+annotate' :: String -> Colour Double -> Int -> Int -> Diagram B R2 -> Diagram B R2
+annotate' s h n m =
+  withName (n, m) (atop . place (annotate s h (n `div` 2) (m `div` 2)) . location)
+
+example :: Int -> Int -> Diagram B R2
+example n m =
+  (gridWithHalves n m) #
+  fiveLines (2 * n - 3) 3 #
+  intPts [(n + 1,          m + 1) | n <- [2,4..2 * n - 1] :: [Int]
+                                  , m <- [2,4..2 * m - 1] :: [Int]] #
+  bndPts [(1 :: Int,  m + 1     ) | m <- [0,2..2 * m]] #
+  bndPts [(n + 1,     1 :: Int  ) | n <- [0,2..2 * n]] #
+  bndPts [(2 * n + 1, m + 1     ) | m <- [0,2..2 * m]] #
+  bndPts [(n + 1,     2 * m + 1 ) | n <- [0,2..2 * n]] #
+  annotate' "u" red  (2 * n - 1) 1 #
+  annotate' "u" red  (2 * n + 1) 3 #
+  annotate' "u" blue (2 * n - 1) 3 #
+  annotate' "u" blue (2 * n - 3) 3 #
+  annotate' "u" blue (2 * n - 1) 5
 
 main :: IO ()
-main = mainWith example
+main = mainWith $ example 3 3

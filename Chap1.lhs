@@ -79,6 +79,11 @@ Haskell Preamble
 
 > {-# LANGUAGE BangPatterns #-}
 
+> module Chap1 (
+>     exSolLapack
+>   , foo
+>   ) where
+>
 > import Data.Array.Repa                  as R
 > import Data.Array.Repa.Unsafe           as R
 
@@ -86,6 +91,9 @@ Haskell Preamble
 > import Prelude                          as P
 > import Text.Printf
 > import Options.Applicative
+
+> import Data.Packed.Matrix
+> import Numeric.LinearAlgebra.Algorithms
 
 Laplace's Equation: The Five Point Formula
 ==========================================
@@ -160,7 +168,7 @@ indicates that the point is a boundary point.
 
 ```{.dia height='500'}
 import Diagram
-dia = example
+dia = example 3 3
 ```
 
 $$
@@ -191,8 +199,35 @@ $$
 \boldsymbol{x}_i^{[k+1]} = \frac{1}{A_{i,i}}\Bigg[\boldsymbol{b}_i - \sum_{j \neq i} A_{i,j}\boldsymbol{x}_j^{[k]}\Bigg]
 $$
 
+> m :: Matrix Double
+> m = 4 >< 4 $ concat [ [-4,  1,  0,  1]
+>                     , [ 1, -4,  1,  0]
+>                     , [ 0,  1, -4,  1]
+>                     , [ 1,  0,  1, -4]
+>                     ]
+>
+> b :: Matrix Double
+> b = 4 >< 1 $ concat [ [-2]
+>                     , [-3]
+>                     , [-4]
+>                     , [-3]
+>                     ]
+> exSolLapack :: Matrix Double
+> exSolLapack = linearSolve m b
+>
+> foo :: Int
+> foo = 3
+
+    [ghci]
+    import Chap1
+    3 + 4 + foo
+
 Computational stencil as in page 149?
 
+```{.dia height='500'}
+import Diagram
+dia = example 5 5
+```
 
 
 > solveLaplace
@@ -318,14 +353,14 @@ Computational stencil as in page 149?
 > boundValue gridSizeX gridSizeY = computeP $
 >                                  fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
 >   where
->     f (Z :. ix :. iy) | iy == 0         = 0
->     f (Z :. ix :. iy) | iy == gridSizeY = 1 / ((1 + x)^2 + 1)
+>     f (Z :. _ix :. iy) | iy == 0         = 0
+>     f (Z :.  ix :. iy) | iy == gridSizeY = 1 / ((1 + x)^2 + 1)
 >       where
 >         x = fromIntegral ix / fromIntegral gridSizeX
->     f (Z :. ix :. iy) | ix == 0         = y / (1 + y^2)
+>     f (Z :.  ix :. iy) | ix == 0         = y / (1 + y^2)
 >       where
 >         y = fromIntegral iy / fromIntegral gridSizeY
->     f (Z :. ix :. iy) | ix == gridSizeX = y / (4 + y^2)
+>     f (Z :.  ix :. iy) | ix == gridSizeX = y / (4 + y^2)
 >       where
 >         y = fromIntegral iy / fromIntegral gridSizeY
 >     f _                                 = 0
@@ -334,10 +369,10 @@ Computational stencil as in page 149?
 > boundMask gridSizeX gridSizeY = computeP $
 >                                 fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
 >   where
->     f (Z :. ix :. iy) | iy == 0         = 0
->     f (Z :. ix :. iy) | iy == gridSizeY = 0
->     f (Z :. ix :. iy) | ix == 0         = 0
->     f (Z :. ix :. iy) | ix == gridSizeX = 0
+>     f (Z :. _ix :.  iy) | iy == 0         = 0
+>     f (Z :. _ix :.  iy) | iy == gridSizeY = 0
+>     f (Z :.  ix :. _iy) | ix == 0         = 0
+>     f (Z :.  ix :. _iy) | ix == gridSizeX = 0
 >     f _                                 = 1
 
 > analyticValue :: Monad m => m (Array U DIM2 Double)
