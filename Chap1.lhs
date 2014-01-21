@@ -82,6 +82,9 @@ Haskell Preamble
 > module Chap1 (
 >     exSolLapack
 >   , foo
+>   , midPoint
+>   , main'
+>   , main
 >   ) where
 >
 > import Data.Array.Repa                  as R
@@ -219,8 +222,9 @@ $$
 > foo = 3
 
     [ghci]
-    import Chap1
-    3 + 4 + foo
+    3 + 4
+    foo
+    exSolLapack
 
 Computational stencil as in page 149?
 
@@ -229,26 +233,31 @@ import Diagram
 dia = example 5 5
 ```
 
-
-> solveLaplace
-> 	:: Monad m
->         => Int			-- ^ Number of iterations to use.
->         -> Array U DIM2 Double	-- ^ Boundary value mask.
->         -> Array U DIM2 Double	-- ^ Boundary values.
->         -> Array U DIM2 Double	-- ^ Initial state.
->         -> m (Array U DIM2 Double)
->
-> solveLaplace steps arrBoundMask arrBoundValue arrInit
->  = go steps arrInit
+> boundValue :: Monad m => Int -> Int -> m (Array U DIM2 Double)
+> boundValue gridSizeX gridSizeY = computeP $
+>                                  fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
 >   where
->     go !i !arr
->       | i == 0
->       = return     arr
->
->       | otherwise
->       = do arr' <- relaxLaplace arrBoundMask arrBoundValue arr
->            go (i - 1) arr'
+>     f (Z :. _ix :. iy) | iy == 0         = 0
+>     f (Z :.  ix :. iy) | iy == gridSizeY = 1 / ((1 + x)^2 + 1)
+>       where
+>         x = fromIntegral ix / fromIntegral gridSizeX
+>     f (Z :.  ix :. iy) | ix == 0         = y / (1 + y^2)
+>       where
+>         y = fromIntegral iy / fromIntegral gridSizeY
+>     f (Z :.  ix :. iy) | ix == gridSizeX = y / (4 + y^2)
+>       where
+>         y = fromIntegral iy / fromIntegral gridSizeY
+>     f _                                 = 0
 
+> boundMask :: Monad m => Int -> Int -> m (Array U DIM2 Double)
+> boundMask gridSizeX gridSizeY = computeP $
+>                                 fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
+>   where
+>     f (Z :. _ix :.  iy) | iy == 0         = 0
+>     f (Z :. _ix :.  iy) | iy == gridSizeY = 0
+>     f (Z :.  ix :. _iy) | ix == 0         = 0
+>     f (Z :.  ix :. _iy) | ix == gridSizeX = 0
+>     f _                                 = 1
 
 -- | Perform matrix relaxation for the Laplace equation,
 --	using a stencil function.
@@ -295,8 +304,24 @@ dia = example 5 5
 >       =  (i == 0) || (i >= width  - 1)
 >          || (j == 0) || (j >= height - 1)
 
-
-
+> solveLaplace
+> 	:: Monad m
+>         => Int			-- ^ Number of iterations to use.
+>         -> Array U DIM2 Double	-- ^ Boundary value mask.
+>         -> Array U DIM2 Double	-- ^ Boundary values.
+>         -> Array U DIM2 Double	-- ^ Initial state.
+>         -> m (Array U DIM2 Double)
+>
+> solveLaplace steps arrBoundMask arrBoundValue arrInit
+>  = go steps arrInit
+>   where
+>     go !i !arr
+>       | i == 0
+>       = return     arr
+>
+>       | otherwise
+>       = do arr' <- relaxLaplace arrBoundMask arrBoundValue arr
+>            go (i - 1) arr'
 
 > data Options =
 >   Options
@@ -332,11 +357,13 @@ dia = example 5 5
 > midPoint :: Int
 > midPoint = gridSize `div` 2
 
-> main :: IO ()
-> main = execParser opts >>= main'
+> analyticValue :: Monad m => m (Array U DIM2 Double)
+> analyticValue = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f
 >   where
->     opts = info (helper <*> options)
->            fullDesc
+>     f (Z :. ix :. iy) = y / ((1 + x)^2 + y^2)
+>       where
+>         y = fromIntegral iy / fromIntegral gridSize
+>         x = fromIntegral ix / fromIntegral gridSize
 
 > main' :: Options -> IO ()
 > main' os = do
@@ -349,39 +376,11 @@ dia = example 5 5
 >   let vss = toList sl1
 >   mapM_ (\v -> putStrLn $ printf "%16.10e" v) vss
 
-> boundValue :: Monad m => Int -> Int -> m (Array U DIM2 Double)
-> boundValue gridSizeX gridSizeY = computeP $
->                                  fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
+> main :: IO ()
+> main = execParser opts >>= main'
 >   where
->     f (Z :. _ix :. iy) | iy == 0         = 0
->     f (Z :.  ix :. iy) | iy == gridSizeY = 1 / ((1 + x)^2 + 1)
->       where
->         x = fromIntegral ix / fromIntegral gridSizeX
->     f (Z :.  ix :. iy) | ix == 0         = y / (1 + y^2)
->       where
->         y = fromIntegral iy / fromIntegral gridSizeY
->     f (Z :.  ix :. iy) | ix == gridSizeX = y / (4 + y^2)
->       where
->         y = fromIntegral iy / fromIntegral gridSizeY
->     f _                                 = 0
-
-> boundMask :: Monad m => Int -> Int -> m (Array U DIM2 Double)
-> boundMask gridSizeX gridSizeY = computeP $
->                                 fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
->   where
->     f (Z :. _ix :.  iy) | iy == 0         = 0
->     f (Z :. _ix :.  iy) | iy == gridSizeY = 0
->     f (Z :.  ix :. _iy) | ix == 0         = 0
->     f (Z :.  ix :. _iy) | ix == gridSizeX = 0
->     f _                                 = 1
-
-> analyticValue :: Monad m => m (Array U DIM2 Double)
-> analyticValue = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f
->   where
->     f (Z :. ix :. iy) = y / ((1 + x)^2 + y^2)
->       where
->         y = fromIntegral iy / fromIntegral gridSize
->         x = fromIntegral ix / fromIntegral gridSize
+>     opts = info (helper <*> options)
+>            fullDesc
 
 Comparison C Code
 =================
@@ -391,14 +390,14 @@ Main
 
 This is an example of C.
 
-~~~~ {.c include="Chap1a.c"}
-~~~~
+ ~~~~ {.c include="Chap1a.c"}
+ ~~~~
 
 Matrix
 ------
 
-~~~~ {.c include="libc/Matrix.c"}
-~~~~
+ ~~~~ {.c include="libc/Matrix.c"}
+ ~~~~
 
 Bibliography
 ============
