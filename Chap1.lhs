@@ -81,7 +81,6 @@ Haskell Preamble
 
 > module Chap1 (
 >     exSolLapack
->   , foo
 >   , midPoint
 >   , main'
 >   , main
@@ -97,6 +96,9 @@ Haskell Preamble
 
 > import Data.Packed.Matrix
 > import Numeric.LinearAlgebra.Algorithms
+
+> import Text.PrettyPrint.HughesPJClass ( render, pPrint )
+> import PrettyPrint ()
 
 Laplace's Equation: The Five Point Formula
 ==========================================
@@ -215,23 +217,46 @@ $$
 >                     , [-4]
 >                     , [-3]
 >                     ]
-> exSolLapack :: Matrix Double
-> exSolLapack = linearSolve m b
 >
-> foo :: Int
-> foo = 3
+> exSolLapack :: [[Double]]
+> exSolLapack = toLists $ linearSolve m b
 
     [ghci]
-    3 + 4
-    foo
     exSolLapack
 
-Computational stencil as in page 149?
-
-```{.dia height='500'}
-import Diagram
-dia = example 5 5
-```
+> mkJacobiMat :: (Int, Int) -> Int -> Array D DIM2 Double
+> mkJacobiMat (i, j) n = foo
+>   where
+>     innerN = (n - 1)^2
+>     foo
+>       | (i, j) == (1, 1)
+>       = fromFunction (Z :. innerN :. innerN) f11
+>       | (i, j) == (n - 1, 1)
+>       = fromFunction (Z :. innerN :. innerN) fn1
+>       | (i, j) == (1, n - 1)
+>       = fromFunction (Z :. innerN :. innerN) f1n
+>       | (i, j) == (n - 1, n - 1)
+>       = fromFunction (Z :. innerN :. innerN) fnn
+>       where
+>         f11 (Z :. k :. l) | k == 0     && l == 0 = -4.0
+>         f11 (Z :. k :. l) | k == 1     && l == 0 =  1.0
+>         f11 (Z :. k :. l) | k == n - 1 && l == 0 =  1.0
+>         f11 _                                    =  0.0
+>
+>         fn1 (Z :. k :. l) | k == 1 * (n - 1) - 2 && l == 1 =  1.0
+>         fn1 (Z :. k :. l) | k == 1 * (n - 1) - 1 && l == 1 = -4.0
+>         fn1 (Z :. k :. l) | k == 2 * (n - 1) - 1 && l == 1 =  1.0
+>         fn1 _                                              =  0.0
+>
+>         f1n (Z :. k :. l) | k == innerN - 2 * (n - 1)     && l == innerN - 2 =  1.0
+>         f1n (Z :. k :. l) | k == innerN - 1 * (n - 1) + 0 && l == innerN - 2 = -4.0
+>         f1n (Z :. k :. l) | k == innerN - 1 * (n - 1) + 1 && l == innerN - 2 =  1.0
+>         f1n _                                                                =  0.0
+>
+>         fnn (Z :. k :. l) | k == innerN - 1 * (n - 1) - 1 && l == innerN - 1 =  1.0
+>         fnn (Z :. k :. l) | k == innerN - 1               && l == innerN - 1 = -4.0
+>         fnn (Z :. k :. l) | k == innerN - 2               && l == innerN - 1 =  1.0
+>         fnn _                                                                =  0.0
 
 > boundValue :: Monad m => Int -> Int -> m (Array U DIM2 Double)
 > boundValue gridSizeX gridSizeY = computeP $
@@ -322,6 +347,13 @@ dia = example 5 5
 >       | otherwise
 >       = do arr' <- relaxLaplace arrBoundMask arrBoundValue arr
 >            go (i - 1) arr'
+
+Computational stencil as in page 149?
+
+```{.dia height='500'}
+import Diagram
+dia = example 5 5
+```
 
 > data Options =
 >   Options
