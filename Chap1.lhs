@@ -88,9 +88,13 @@ Haskell Preamble
 >
 > import Data.Array.Repa                  as R
 > import Data.Array.Repa.Unsafe           as R
+> import Data.Array.Repa.Algorithms.Matrix
 
 > import qualified SolverStencil          as SS
 > import Prelude                          as P
+
+> import Data.List ( foldl' )
+
 > import Text.Printf
 > import Options.Applicative
 
@@ -224,39 +228,100 @@ $$
     [ghci]
     exSolLapack
 
-> mkJacobiMat :: (Int, Int) -> Int -> Array D DIM2 Double
-> mkJacobiMat (i, j) n = foo
+> mkJacobiMat :: Int -> Array D DIM2 Double
+> mkJacobiMat n = withInt $
+>                 withBnd wr $
+>                 withBnd er $
+>                 withBnd sr $
+>                 withBnd nr $
+>                 corners
+>
 >   where
+>
+>     withInt cs = foldl' (R.++) cs [ flatten $ ip k l | k <- [1..n - 3], l <- [1..n - 3 ] ]
+>
+>     withBnd bndFn cs = foldl' (R.++) cs (P.map flatten $ P.map bndFn [1..n - 3])
+>
+>     corners = flatten nw R.++
+>               flatten ne R.++
+>               flatten sw R.++
+>               flatten se
+>
+>     flatten :: Array D DIM2 Double -> Array D DIM2 Double
+>     flatten = R.reshape (Z :. (innerN :: Int) :. (1 :: Int))
+>
 >     innerN = (n - 1)^2
->     foo
->       | (i, j) == (1, 1)
->       = fromFunction (Z :. innerN :. innerN) f11
->       | (i, j) == (n - 1, 1)
->       = fromFunction (Z :. innerN :. innerN) fn1
->       | (i, j) == (1, n - 1)
->       = fromFunction (Z :. innerN :. innerN) f1n
->       | (i, j) == (n - 1, n - 1)
->       = fromFunction (Z :. innerN :. innerN) fnn
->       where
->         f11 (Z :. k :. l) | k == 0     && l == 0 = -4.0
->         f11 (Z :. k :. l) | k == 1     && l == 0 =  1.0
->         f11 (Z :. k :. l) | k == n - 1 && l == 0 =  1.0
->         f11 _                                    =  0.0
 >
->         fn1 (Z :. k :. l) | k == 1 * (n - 1) - 2 && l == 1 =  1.0
->         fn1 (Z :. k :. l) | k == 1 * (n - 1) - 1 && l == 1 = -4.0
->         fn1 (Z :. k :. l) | k == 2 * (n - 1) - 1 && l == 1 =  1.0
->         fn1 _                                              =  0.0
+>     nw = fromFunction (Z :. n - 1 :. n -1) nwAux
 >
->         f1n (Z :. k :. l) | k == innerN - 2 * (n - 1)     && l == innerN - 2 =  1.0
->         f1n (Z :. k :. l) | k == innerN - 1 * (n - 1) + 0 && l == innerN - 2 = -4.0
->         f1n (Z :. k :. l) | k == innerN - 1 * (n - 1) + 1 && l == innerN - 2 =  1.0
->         f1n _                                                                =  0.0
+>     nwAux (Z :. 0 :. 1) =  1.0
+>     nwAux (Z :. 0 :. 0) = -4.0
+>     nwAux (Z :. 1 :. 0) =  1.0
+>     nwAux _             =  0.0
 >
->         fnn (Z :. k :. l) | k == innerN - 1 * (n - 1) - 1 && l == innerN - 1 =  1.0
->         fnn (Z :. k :. l) | k == innerN - 1               && l == innerN - 1 = -4.0
->         fnn (Z :. k :. l) | k == innerN - 2               && l == innerN - 1 =  1.0
->         fnn _                                                                =  0.0
+>     ne = fromFunction (Z :. n - 1 :. n -1) neAux
+>
+>     neAux (Z :. 0 :. j) | j == n - 3 =  1.0
+>     neAux (Z :. 0 :. j) | j == n - 2 = -4.0
+>     neAux (Z :. 1 :. j) | j == n - 2 =  1.0
+>     neAux _                          =  0.0
+>
+>     sw = fromFunction (Z :. n - 1 :. n -1) swAux
+>
+>     swAux (Z :. i :. 0) | i == n - 3 =  1.0
+>     swAux (Z :. i :. 0) | i == n - 2 = -4.0
+>     swAux (Z :. i :. 1) | i == n - 2 =  1.0
+>     swAux _                          =  0.0
+>
+>     se = fromFunction (Z :. n - 1 :. n -1) seAux
+>
+>     seAux (Z :. i :. j) | i == n - 3 && j == n - 2 =  1.0
+>     seAux (Z :. i :. j) | i == n - 2 && j == n - 2 = -4.0
+>     seAux (Z :. i :. j) | i == n - 2 && j == n - 3 =  1.0
+>     seAux _                                        =  0.0
+>
+>     nr l = fromFunction (Z :. n - 1 :. n -1) (nrAux l)
+>
+>     nrAux l (Z :. 0 :. j) | j == l     = -4.0
+>     nrAux l (Z :. 0 :. j) | j == l - 1 =  1.0
+>     nrAux l (Z :. 0 :. j) | j == l + 1 =  1.0
+>     nrAux l (Z :. 1 :. j) | j == l     =  1.0
+>     nrAux _ _                          =  0.0
+>
+>     sr l = fromFunction (Z :. n - 1 :. n -1) (srAux l)
+>
+>     srAux l (Z :. i :. j) | i == n - 2 && j == l     = -4.0
+>     srAux l (Z :. i :. j) | i == n - 2 && j == l - 1 =  1.0
+>     srAux l (Z :. i :. j) | i == n - 2 && j == l + 1 =  1.0
+>     srAux l (Z :. i :. j) | i == n - 3 && j == l     =  1.0
+>     srAux _ _                                        =  0.0
+>
+>     er l = fromFunction (Z :. n - 1 :. n -1) (erAux l)
+>
+>     erAux l (Z :. i :. j) | i == l     && j == n - 2 = -4.0
+>     erAux l (Z :. i :. j) | i == l - 1 && j == n - 2 =  1.0
+>     erAux l (Z :. i :. j) | i == l + 1 && j == n - 2 =  1.0
+>     erAux l (Z :. i :. j) | i == l     && j == n - 3 =  1.0
+>     erAux _ _                                        =  0.0
+>
+>     wr l = fromFunction (Z :. n - 1 :. n -1) (wrAux l)
+>
+>     wrAux l (Z :. i :. j) | i == l     && j == 0 = -4.0
+>     wrAux l (Z :. i :. j) | i == l - 1 && j == 0 =  1.0
+>     wrAux l (Z :. i :. j) | i == l + 1 && j == 0 =  1.0
+>     wrAux l (Z :. i :. j) | i == l     && j == 1 =  1.0
+>     wrAux _ _                                    =  0.0
+>
+>     ip k l = fromFunction (Z :. n - 1 :. n -1) (ipAux k l)
+>
+>     ipAux k l (Z :. i :. j) | i == k     && j == l     = -4.0
+>     ipAux k l (Z :. i :. j) | i == k - 1 && j == l     =  1.0
+>     ipAux k l (Z :. i :. j) | i == k + 1 && j == l     =  1.0
+>     ipAux k l (Z :. i :. j) | i == k     && j == l - 1 =  1.0
+>     ipAux k l (Z :. i :. j) | i == k     && j == l + 1 =  1.0
+>     ipAux _ _ _                                        =  0.0
+
+
 
 > boundValue :: Monad m => Int -> Int -> m (Array U DIM2 Double)
 > boundValue gridSizeX gridSizeY = computeP $
