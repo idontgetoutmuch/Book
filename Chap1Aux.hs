@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances   #-}
+
 module Chap1Aux where
 
 import Prelude         as P
@@ -100,3 +102,28 @@ mkJacobiMat n = withInt $
 
 class Tex a where
   tex :: a -> Doc
+
+instance Tex Double where
+  tex = pPrint
+
+instance (Source t a, Tex a) => Tex (Array t DIM1 a) where
+ tex a = hcat $ punctuate (space <> text "&" <> space) elems
+   where
+     elems = [ tex (a!j) | i <- [0..n-1], let j = Z:. i ]
+     Z :. n = extent a
+
+instance (Source t a, Tex a) => Tex (Array t DIM2 a) where
+ tex a = vcat $ punctuate (space <> text "\\\\") elems
+   where
+     elems = [ tex (slice a j) | i <- [0..n-1], let j = Any :. i :. All]
+     Z :. n :. _m = extent a
+
+matrix5 =  render $
+           vcat [ text "\n\\begin{bmatrix}"
+                , tex $ mkJacobiMat 5
+                , text "\\end{bmatrix}\n"
+                ]
+
+main = do
+  writeFile "matrix5.tex" matrix5
+

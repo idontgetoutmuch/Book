@@ -321,7 +321,8 @@ $$
 >     ipAux k l (Z :. i :. j) | i == k     && j == l + 1 =  1.0
 >     ipAux _ _ _                                        =  0.0
 
-
+~~~~ {#verbatim include="matrix5.tex"}
+~~~~
 
 > boundValue :: Monad m => Int -> Int -> m (Array U DIM2 Double)
 > boundValue gridSizeX gridSizeY = computeP $
