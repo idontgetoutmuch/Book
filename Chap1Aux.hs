@@ -42,13 +42,13 @@ mkJacobiBnd n = vcat $
 
     north l =  fromFunction (Z :. n + 1 :. n + 1) (nAux l)
 
-    nAux l (Z :. 0 :. j) | j == l = (True,  (j, 0))
-    nAux _ (Z :. i :. j)          = (False, (j ,i))
+    nAux l (Z :. i :. j) | i == l && j == n = (True,  (i, 0))
+    nAux _ (Z :. i :. j)                    = (False, (i ,j))
 
     south l =  fromFunction (Z :. n + 1 :. n + 1) (sAux l)
 
-    sAux l (Z :. i :. j) | i == n && j == l = (True,  (j, n))
-    sAux _ (Z :. i :. j)                    = (False, (j ,i))
+    sAux l (Z :. i :. j) | i == l && j == n = (True,  (i, n))
+    sAux _ (Z :. i :. j)                    = (False, (i ,j))
 
     east l =  fromFunction (Z :. n + 1 :. n + 1) (eAux l)
 
