@@ -16,6 +16,88 @@ import Data.List ( foldl' )
 import Text.PrettyPrint.HughesPJClass
 import PrettyPrint ()
 
+-- mkJacobiBnd' :: Int -> Doc
+mkJacobiBnd' n = concat [corners {- , edges -} {- , inners -}]
+
+  where
+
+    ux0 = const 1.0
+    ux1 = const 2.0
+    u0y = const 1.0
+    u1y = const 2.0
+
+    corners = [pp' nw, pp' sw, pp' ne, pp' se]
+
+    edges = P.map edge [west, east, south, north]
+
+    edge fn = P.map (pp' . fn) [2..n - 2]
+
+    inners = replicate ((n - 3)^2) $ text "0"
+
+    pp x = hcat $
+           punctuate (text " + ") $
+           P.map (\(i, j) -> text "-" <> text "u_" <> braces (int i <> int j)) $
+           P.map snd $
+           filter fst $
+           toList $
+           flatten ((n + 1)^2) x
+
+    pp' x = P.map bndFn $
+            P.map snd $
+            filter fst $
+            toList $
+            flatten ((n + 1)^2) x
+
+    bndFn (0, j) | j > 0 && j < n = u0y j
+    bndFn (n, j) | j > 0 && j < n = u1y j
+    bndFn (i, 0) | i > 0 && i < n = ux0 i
+    bndFn (i, n) | i > 0 && i < n = ux1 i
+    bndFn _      = error "Boundary function used at non-boundary point"
+
+    north l =  fromFunction (Z :. n + 1 :. n + 1) (nAux l)
+
+    nAux l (Z :. i :. j) | i == l && j == n = (True,  (i, 0))
+    nAux _ (Z :. i :. j)                    = (False, (i ,j))
+
+    south l =  fromFunction (Z :. n + 1 :. n + 1) (sAux l)
+
+    sAux l (Z :. i :. j) | i == l && j == n = (True,  (i, n))
+    sAux _ (Z :. i :. j)                    = (False, (i ,j))
+
+    east l =  fromFunction (Z :. n + 1 :. n + 1) (eAux l)
+
+    eAux l (Z :. i :. j) | i == n && j == l = (True,  (i, j))
+    eAux _ (Z :. i :. j)                    = (False, (i ,j))
+
+    west l =  fromFunction (Z :. n + 1 :. n + 1) (wAux l)
+
+    wAux l (Z :. i :. j) | i == 0 && j == l = (True,  (i, j))
+    wAux _ (Z :. i :. j)                    = (False, (i ,j))
+
+    nw = fromFunction (Z :. n + 1 :. n + 1) nwAux
+
+    nwAux (Z :. 0 :. 1) = (True,  (1, 0))
+    nwAux (Z :. 1 :. 0) = (True,  (0, 1))
+    nwAux (Z :. i :. j) = (False, (i,  j))
+
+    sw = fromFunction (Z :. n + 1 :. n + 1) swAux
+
+    swAux (Z :. i :. 1) | i == n     = (True,  (1,     n))
+    swAux (Z :. i :. 0) | i == n - 1 = (True,  (0, n - 1))
+    swAux (Z :. i :. j)              = (False, (i,     j))
+
+    ne = fromFunction (Z :. n + 1 :. n + 1) neAux
+
+    neAux (Z :. 0 :. j) | j == n     = (True,  (n - 1, 0))
+    neAux (Z :. 1 :. j) | j == n - 1 = (True,  (n,     1))
+    neAux (Z :. i :. j)              = (False, (i,     j))
+
+    se = fromFunction (Z :. n + 1 :. n + 1) seAux
+
+    seAux (Z :. i :. j) | i == n - 1 && j == n     = (True,  (n - 1,     n))
+    seAux (Z :. i :. j) | i == n     && j == n - 1 = (True,  (n,     n - 1))
+    seAux (Z :. i :. j)                            = (False, (i,         j))
+
 mkJacobiBnd :: Int -> Doc
 mkJacobiBnd n = vcat $
                 punctuate (space <> text "\\\\") $
@@ -217,4 +299,5 @@ matrix n =  render $
 main :: IO ()
 main = do
   writeFile "matrix5.tex" (matrix 5)
+  writeFile "matrix3.tex" (matrix 3)
 

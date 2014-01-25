@@ -208,6 +208,17 @@ $$
 \boldsymbol{x}_i^{[k+1]} = \frac{1}{A_{i,i}}\Bigg[\boldsymbol{b}_i - \sum_{j \neq i} A_{i,j}\boldsymbol{x}_j^{[k]}\Bigg]
 $$
 
+Boundary conditions
+
+$$
+\begin{matrix}
+u(x, 0) = 1 & u(x, 1) = 2 & u(0, y) = 1 & u(1, y) = 2
+\end{matrix}
+$$
+
+~~~~ {#verbatim include="matrix3.tex"}
+~~~~
+
 > m :: Matrix Double
 > m = 4 >< 4 $ concat [ [-4,  1,  0,  1]
 >                     , [ 1, -4,  1,  0]
@@ -226,6 +237,7 @@ $$
 > exSolLapack = toLists $ linearSolve m b
 
     [ghci]
+    3 + 4
     exSolLapack
 
 Computational stencil as in page 149?
