@@ -93,8 +93,6 @@ Haskell Preamble
 > import qualified SolverStencil          as SS
 > import Prelude                          as P
 
-> import Data.List ( foldl' )
-
 > import Text.Printf
 > import Options.Applicative
 
@@ -103,6 +101,8 @@ Haskell Preamble
 
 > import Text.PrettyPrint.HughesPJClass ( render, pPrint )
 > import PrettyPrint ()
+
+> import Chap1Aux
 
 Laplace's Equation: The Five Point Formula
 ==========================================
@@ -235,10 +235,15 @@ $$
 >
 > exSolLapack :: [[Double]]
 > exSolLapack = toLists $ linearSolve m b
+>
+> exSolLapack1 = do
+>   foo <- computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
+>   return $ 4 >< 4 $ toList foo
 
     [ghci]
-    3 + 4
     exSolLapack
+    mkJacobiBnd' fn1b fn2b 3
+    (computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)) >>= return . pPrint
 
 Computational stencil as in page 149?
 
