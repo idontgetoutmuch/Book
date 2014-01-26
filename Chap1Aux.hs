@@ -46,25 +46,24 @@ bndFn n (i, 0) |           i > 0 && i < n = ux0 i
 bndFn n (i, j) | j == n && i > 0 && i < n = ux1 i
 bndFn _ _      = error "Boundary function used at non-boundary point"
 
-mkJacobiBnd' :: (Int -> a) -> (Int -> [(Int, Int)] -> a) -> Int -> [a]
-mkJacobiBnd' fn1 fn2 n = concat [corners, concat edges , inners'']
+mkJacobiBnd :: (Int -> a) -> (Int -> [(Int, Int)] -> a) -> Int -> [a]
+mkJacobiBnd fn1 fn2 n = concat [corners, concat edges , inners]
 
   where
 
-    corners = [pp'' nw, pp'' sw, pp'' ne, pp'' se]
+    corners = [pp nw, pp sw, pp ne, pp se]
 
-    -- edges :: [[Double]]
     edges = P.map edge [west, east, south, north]
 
-    edge fn = P.map (pp'' . fn) [2..n - 2]
+    edge fn = P.map (pp . fn) [2..n - 2]
 
-    inners'' = replicate ((n - 3)^2) $ fn1 0
+    inners = replicate ((n - 3)^2) $ fn1 0
 
-    pp'' x = fn2 n $
-             P.map snd $
-             filter fst $
-             toList $
-             flatten ((n + 1)^2) x
+    pp x = fn2 n $
+           P.map snd $
+           filter fst $
+           toList $
+           flatten ((n + 1)^2) x
 
     north l =  fromFunction (Z :. n + 1 :. n + 1) (nAux l)
 
@@ -237,7 +236,7 @@ matrix n =  render $
                  , text "\\end{bmatrix}"
                  , text "="
                  , text "\\begin{bmatrix}"
-                 , vcat $ mkJacobiBnd' fn1a fn2a n
+                 , vcat $ punctuate (space <> text "\\\\") $ mkJacobiBnd fn1a fn2a n
                  , text "\\end{bmatrix}\n"
                  ]
 

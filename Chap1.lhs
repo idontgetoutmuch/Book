@@ -219,31 +219,21 @@ $$
 ~~~~ {#verbatim include="matrix3.tex"}
 ~~~~
 
-> m :: Matrix Double
-> m = 4 >< 4 $ concat [ [-4,  1,  0,  1]
->                     , [ 1, -4,  1,  0]
->                     , [ 0,  1, -4,  1]
->                     , [ 1,  0,  1, -4]
->                     ]
->
-> b :: Matrix Double
-> b = 4 >< 1 $ concat [ [-2]
->                     , [-3]
->                     , [-4]
->                     , [-3]
->                     ]
->
-> exSolLapack :: [[Double]]
-> exSolLapack = toLists $ linearSolve m b
->
 > exSolLapack1 = do
 >   foo <- computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
 >   return $ 4 >< 4 $ toList foo
+>
+> exSolLapackBnd1 = 4 >< 1 $ mkJacobiBnd fn1b fn2b 3
+>
+> urk = exSolLapack1 >>= \m -> return $ linearSolve m exSolLapackBnd1
+
 
     [ghci]
     exSolLapack
     mkJacobiBnd' fn1b fn2b 3
     (computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)) >>= return . pPrint
+    exSolLapack1 >>= \m -> return $ linearSolve m exSolLapackBnd1
+    urk
 
 Computational stencil as in page 149?
 
