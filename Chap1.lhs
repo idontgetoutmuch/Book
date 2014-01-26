@@ -121,24 +121,6 @@ $$
 \nabla^2 = \frac{\partial^2}{\partial x^2} +\frac{\partial^2}{\partial y^2}
 $$
 
-We take the example from [@iserles2009first Chapter 8] where the
-boundary conditions are:
-
-$$
-\begin{aligned}
-\phi(x, 0) &= 0 \\
-\phi(x, 1) &= \frac{1}{(1 + x)^2 + 1} \\
-\phi(0, y) &= \frac{y}{1 + y^2} \\
-\phi(1, y) &= \frac{y}{4 + y^2}
-\end{aligned}
-$$
-
-This has the exact solution
-
-$$
-u(x, y) = \frac{y}{(1 + x)^2 + y^2}
-$$
-
 We disretize (much more detail from Iserles' book needed here).
 
 $$
@@ -173,42 +155,24 @@ $$
 $$
 
 where blue indicates that the point is an interior point and red
-indicates that the point is a boundary point.
+indicates that the point is a boundary point. For Dirichlet boundary
+conditions (which is all we consider in this post), the values at the
+boundary points are known.
 
 ```{.dia height='500'}
 import Diagram
 dia = example 3 3
 ```
 
-$$
-\begin{bmatrix}
--4 &  1 &  1 &  0 \\
- 1 & -4 &  0 &  1 \\
- 1 &  0 & -4 &  1 \\
- 0 &  1 &  1 & -4
-\end{bmatrix}
-\begin{bmatrix}
-{\color{blue}{u_{1,1}}} \\
-{\color{blue}{u_{2,1}}} \\
-{\color{blue}{u_{1,2}}} \\
-{\color{blue}{u_{2,2}}}
-\end{bmatrix}
-=
-\begin{bmatrix}
--{\color{red}{u_{1,0}}} - {\color{red}{u_{0,1}}} \\
--{\color{red}{u_{2,0}}} - {\color{red}{u_{3,1}}} \\
--{\color{red}{u_{0,2}}} - {\color{red}{u_{1,3}}} \\
--{\color{red}{u_{2,3}}} - {\color{red}{u_{3,2}}}
-\end{bmatrix}
-$$
+We can write the entire set of equations for this grid as
 
-Jacobi iteration given $A\boldsymbol{x} = \boldsymbol{b}$
+~~~~ {#verbatim include="matrix3.tex"}
+~~~~
 
-$$
-\boldsymbol{x}_i^{[k+1]} = \frac{1}{A_{i,i}}\Bigg[\boldsymbol{b}_i - \sum_{j \neq i} A_{i,j}\boldsymbol{x}_j^{[k]}\Bigg]
-$$
+A Very Simple Example
+---------------------
 
-Boundary conditions
+Let us take the boundary conditions to be
 
 $$
 \begin{matrix}
@@ -216,24 +180,88 @@ u(x, 0) = 1 & u(x, 1) = 2 & u(0, y) = 1 & u(1, y) = 2
 \end{matrix}
 $$
 
-~~~~ {#verbatim include="matrix3.tex"}
-~~~~
+With our $ 4 \times 4$ grid we can solve this exactly using the
 
-> exSolLapack1 = do
+> exSolLapack = do
 >   foo <- computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
 >   return $ 4 >< 4 $ toList foo
 >
 > exSolLapackBnd1 = 4 >< 1 $ mkJacobiBnd fn1b fn2b 3
 >
-> urk = exSolLapack1 >>= \m -> return $ linearSolve m exSolLapackBnd1
+> urk = exSolLapack >>= \m -> return $ linearSolve m exSolLapackBnd1
 
 
     [ghci]
     exSolLapack
     mkJacobiBnd' fn1b fn2b 3
     (computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)) >>= return . pPrint
-    exSolLapack1 >>= \m -> return $ linearSolve m exSolLapackBnd1
+    exSolLapack >>= \m -> return $ linearSolve m exSolLapackBnd1
     urk
+
+Jacobi iteration given $A\boldsymbol{x} = \boldsymbol{b}$
+
+$$
+\boldsymbol{x}_i^{[k+1]} = \frac{1}{A_{i,i}}\Bigg[\boldsymbol{b}_i - \sum_{j \neq i} A_{i,j}\boldsymbol{x}_j^{[k]}\Bigg]
+$$
+
+* Boundary condition mask
+* Boundary condition values
+* Initial matrix
+
+Check if this element is on the border of the matrix.
+If so we can't apply the stencil because we don't have all the neighbours.
+
+> relaxLaplace
+>   :: Monad m
+>      => Array U DIM2 Double
+>      -> Array U DIM2 Double
+>      -> Array U DIM2 Double
+>      -> m (Array U DIM2 Double)
+>
+> relaxLaplace arrBoundMask arrBoundValue arr
+>   = computeP
+>     $ R.zipWith (+) arrBoundValue
+>     $ R.zipWith (*) arrBoundMask
+>     $ unsafeTraverse arr id elemFn
+>   where
+>     _ :. height :. width
+>       = extent arr
+>
+>     elemFn !get !d@(sh :. i :. j)
+>       = if isBorder i j
+>         then  get d
+>         else (get (sh :. (i-1) :. j)
+>               +   get (sh :. i     :. (j-1))
+>               +   get (sh :. (i+1) :. j)
+>               +   get (sh :. i     :. (j+1))) / 4
+>     isBorder !i !j
+>       =  (i == 0) || (i >= width  - 1)
+>          || (j == 0) || (j >= height - 1)
+
+* Number of iterations to use.
+* Boundary value mask.
+* Boundary values.
+* Initial state.
+
+> solveLaplace
+> 	:: Monad m
+>         => Int
+>         -> Array U DIM2 Double
+>         -> Array U DIM2 Double
+>         -> Array U DIM2 Double
+>         -> m (Array U DIM2 Double)
+>
+> solveLaplace steps arrBoundMask arrBoundValue arrInit
+>  = go steps arrInit
+>   where
+>     go !i !arr
+>       | i == 0
+>       = return     arr
+>
+>       | otherwise
+>       = do arr' <- relaxLaplace arrBoundMask arrBoundValue arr
+>            go (i - 1) arr'
+
 
 Computational stencil as in page 149?
 
@@ -244,6 +272,24 @@ dia = example 5 5
 
 ~~~~ {#verbatim include="matrix5.tex"}
 ~~~~
+
+We take the example from [@iserles2009first Chapter 8] where the
+boundary conditions are:
+
+$$
+\begin{aligned}
+\phi(x, 0) &= 0 \\
+\phi(x, 1) &= \frac{1}{(1 + x)^2 + 1} \\
+\phi(0, y) &= \frac{y}{1 + y^2} \\
+\phi(1, y) &= \frac{y}{4 + y^2}
+\end{aligned}
+$$
+
+This has the exact solution
+
+$$
+u(x, y) = \frac{y}{(1 + x)^2 + y^2}
+$$
 
 > boundValue :: Monad m => Int -> Int -> m (Array U DIM2 Double)
 > boundValue gridSizeX gridSizeY = computeP $
@@ -285,55 +331,6 @@ dia = example 5 5
 --	and 0 otherwise.
 --
 
-> relaxLaplace
->   :: Monad m
->      => Array U DIM2 Double	-- ^ Boundary condition mask
->      -> Array U DIM2 Double	-- ^ Boundary condition values
->      -> Array U DIM2 Double	-- ^ Initial matrix
->      -> m (Array U DIM2 Double)
->
-> relaxLaplace arrBoundMask arrBoundValue arr
->   = computeP
->     $ R.zipWith (+) arrBoundValue
->     $ R.zipWith (*) arrBoundMask
->     $ unsafeTraverse arr id elemFn
->   where
->     _ :. height :. width
->       = extent arr
->
->     elemFn !get !d@(sh :. i :. j)
->       = if isBorder i j
->         then  get d
->         else (get (sh :. (i-1) :. j)
->               +   get (sh :. i     :. (j-1))
->               +   get (sh :. (i+1) :. j)
->               +   get (sh :. i     :. (j+1))) / 4
-
-	-- Check if this element is on the border of the matrix.
-	-- If so we can't apply the stencil because we don't have all the neighbours.
-
->     isBorder !i !j
->       =  (i == 0) || (i >= width  - 1)
->          || (j == 0) || (j >= height - 1)
-
-> solveLaplace
-> 	:: Monad m
->         => Int			-- ^ Number of iterations to use.
->         -> Array U DIM2 Double	-- ^ Boundary value mask.
->         -> Array U DIM2 Double	-- ^ Boundary values.
->         -> Array U DIM2 Double	-- ^ Initial state.
->         -> m (Array U DIM2 Double)
->
-> solveLaplace steps arrBoundMask arrBoundValue arrInit
->  = go steps arrInit
->   where
->     go !i !arr
->       | i == 0
->       = return     arr
->
->       | otherwise
->       = do arr' <- relaxLaplace arrBoundMask arrBoundValue arr
->            go (i - 1) arr'
 
 > data Options =
 >   Options

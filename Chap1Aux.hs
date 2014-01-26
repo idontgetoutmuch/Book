@@ -26,7 +26,12 @@ fn1b = fromIntegral
 fn2a :: Int -> [(Int, Int)] -> Doc
 fn2a _ = hcat .
          punctuate (text " + ") .
-         P.map (\(i, j) -> text "-" <> text "u_" <> braces (int i <> int j))
+         P.map (\(i, j) -> text "-" <>
+                           braces ( text "\\color" <>
+                                    braces (text "red") <>
+                                    braces (text "u_" <> braces (int i <> int j))
+                                  )
+               )
 
 fn2b :: Int -> [(Int, Int)] -> Double
 fn2b n = negate .
@@ -206,7 +211,12 @@ mkJacobiVars :: Int -> Doc
 mkJacobiVars n =
   vcat $
   punctuate (space <> text "\\\\")
-            [ text "u_" <> braces (int i <> int j) | i <- [1..n - 1], j <- [1..n - 1] ]
+            [ braces ( text "\\color" <>
+                       braces (text "blue") <>
+                       braces (text "u_" <> braces (int i <> int j))
+                     )
+            | i <- [1..n - 1], j <- [1..n - 1]
+            ]
 
 class Tex a where
   tex :: a -> Doc
