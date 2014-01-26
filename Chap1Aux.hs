@@ -33,24 +33,6 @@ fn2a _ = hcat .
                                   )
                )
 
-fn2b :: Int -> [(Int, Int)] -> Double
-fn2b n = negate .
-         sum .
-         P.map (bndFn n)
-
-ux0, ux1, u0y, u1y :: Int -> Double
-ux0 = const 1.0
-ux1 = const 2.0
-u0y = const 1.0
-u1y = const 2.0
-
-bndFn :: Int -> (Int, Int) -> Double
-bndFn n (0, j) |           j > 0 && j < n = u0y j
-bndFn n (i, j) | i == n && j > 0 && j < n = u1y j
-bndFn n (i, 0) |           i > 0 && i < n = ux0 i
-bndFn n (i, j) | j == n && i > 0 && i < n = ux1 i
-bndFn _ _      = error "Boundary function used at non-boundary point"
-
 mkJacobiBnd :: (Int -> a) -> (Int -> [(Int, Int)] -> a) -> Int -> [a]
 mkJacobiBnd fn1 fn2 n = concat [corners, concat edges , inners]
 

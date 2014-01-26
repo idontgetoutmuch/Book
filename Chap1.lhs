@@ -77,10 +77,11 @@ Haskell Preamble
 > {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
 > {-# OPTIONS_GHC -fno-warn-orphans          #-}
 
-> {-# LANGUAGE BangPatterns #-}
+> {-# LANGUAGE BangPatterns                  #-}
+> {-# LANGUAGE NoMonomorphismRestriction     #-}
 
 > module Chap1 (
->     exSolLapack
+>     test
 >   , midPoint
 >   , main'
 >   , main
@@ -180,25 +181,50 @@ u(x, 0) = 1 & u(x, 1) = 2 & u(0, y) = 1 & u(1, y) = 2
 \end{matrix}
 $$
 
-With our $ 4 \times 4$ grid we can solve this exactly using the
+With our $4 \times 4$ grid we can solve this exactly using the
+[hmatrix](http://hackage.haskell.org/package/hmatrix) package which
+has a binding to [LAPACK](http://www.netlib.org/lapack/).
 
-> exSolLapack = do
->   foo <- computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
->   return $ 4 >< 4 $ toList foo
->
-> exSolLapackBnd1 = 4 >< 1 $ mkJacobiBnd fn1b fn2b 3
->
-> urk = exSolLapack >>= \m -> return $ linearSolve m exSolLapackBnd1
+First we create a matrix in *hmatrix* form
 
+> matHMat = do
+>   matRepa <- computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
+>   return $ 4 >< 4 $ toList matRepa
 
     [ghci]
-    exSolLapack
-    mkJacobiBnd' fn1b fn2b 3
-    (computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)) >>= return . pPrint
-    exSolLapack >>= \m -> return $ linearSolve m exSolLapackBnd1
-    urk
+    matHMat
 
-Jacobi iteration given $A\boldsymbol{x} = \boldsymbol{b}$
+Next we create the column vector as presribed by the boundary conditions
+
+> ux0 = const 1.0
+> ux1 = const 2.0
+> u0y = const 1.0
+> u1y = const 2.0
+
+> bndFn :: Int -> Int -> (Int, Int) -> Double
+> bndFn n m (0, j) |           j > 0 && j < m = u0y j
+> bndFn n m (i, j) | i == n && j > 0 && j < m = u1y j
+> bndFn n m (i, 0) |           i > 0 && i < n = ux0 i
+> bndFn n m (i, j) | j == m && i > 0 && i < n = ux1 i
+> bndFn _ _ _                                 = 0.0
+
+> bnd1 :: Int -> [(Int, Int)] -> Double
+> bnd1 n = negate .
+>          sum .
+>          P.map (bndFn n n)
+
+> bndHMat = 4 >< 1 $ mkJacobiBnd fromIntegral bnd1 3
+
+    [ghci]
+     bndHMat
+
+> slnHMat = matHMat >>= return . flip linearSolve bndHMat
+
+    [ghci]
+    slnHMat
+
+Inverting a matrix is expensive so instead we use Jacobi
+iteration. Given $A\boldsymbol{x} = \boldsymbol{b}$
 
 $$
 \boldsymbol{x}_i^{[k+1]} = \frac{1}{A_{i,i}}\Bigg[\boldsymbol{b}_i - \sum_{j \neq i} A_{i,j}\boldsymbol{x}_j^{[k]}\Bigg]
@@ -262,6 +288,34 @@ If so we can't apply the stencil because we don't have all the neighbours.
 >       = do arr' <- relaxLaplace arrBoundMask arrBoundValue arr
 >            go (i - 1) arr'
 
+> boundMask :: Monad m => Int -> Int -> m (Array U DIM2 Double)
+> boundMask gridSizeX gridSizeY = computeP $
+>                                 fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
+>   where
+>     f (Z :. _ix :.  iy) | iy == 0         = 0
+>     f (Z :. _ix :.  iy) | iy == gridSizeY = 0
+>     f (Z :.  ix :. _iy) | ix == 0         = 0
+>     f (Z :.  ix :. _iy) | ix == gridSizeX = 0
+>     f _                                   = 1
+
+> boundValue1 :: Monad m => Int -> Int -> m (Array U DIM2 Double)
+> boundValue1 gridSizeX gridSizeY = computeP $
+>                                   fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) g
+>   where
+>     g (Z :. ix :. iy) = bndFn gridSizeX gridSizeY (ix, iy)
+
+> initArrM :: IO (Array U DIM2 Double)
+> initArrM = computeP $ fromFunction (Z :. 4 :. 4) (const 0.0)
+
+> test :: Int -> IO (Array U DIM2 Double)
+> test nIter = do
+>   mask    <- boundMask 3 3
+>   val     <- boundValue1 3 3
+>   initArr <- initArrM
+>   solveLaplace nIter mask val initArr
+
+    [ghci]
+    test 55 >>= return . pPrint
 
 Computational stencil as in page 149?
 
@@ -306,16 +360,6 @@ $$
 >       where
 >         y = fromIntegral iy / fromIntegral gridSizeY
 >     f _                                 = 0
-
-> boundMask :: Monad m => Int -> Int -> m (Array U DIM2 Double)
-> boundMask gridSizeX gridSizeY = computeP $
->                                 fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
->   where
->     f (Z :. _ix :.  iy) | iy == 0         = 0
->     f (Z :. _ix :.  iy) | iy == gridSizeY = 0
->     f (Z :.  ix :. _iy) | ix == 0         = 0
->     f (Z :.  ix :. _iy) | ix == gridSizeX = 0
->     f _                                 = 1
 
 -- | Perform matrix relaxation for the Laplace equation,
 --	using a stencil function.
