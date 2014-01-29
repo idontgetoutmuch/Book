@@ -34,13 +34,25 @@ fn2a _ = hcat .
                )
 
 mkJacobiBnd :: (Int -> a) -> (Int -> [(Int, Int)] -> a) -> Int -> [a]
-mkJacobiBnd fn1 fn2 n = concat [corners, concat edges , inners]
+mkJacobiBnd fn1 fn2 n = nAndNw P.++ lowerRows
 
   where
 
-    corners = [pp nw, pp sw, pp ne, pp se]
+    nAndNw =  [pp nw] P.++
+              edge north P.++
+              [pp ne]
 
-    edges = P.map edge [west, east, south, north]
+    sAndSw = [pp sw] P.++
+             edge south P.++
+             [pp se]
+
+    lowerRows = foldl'
+                (\s m -> take 1 (drop m (edge west)) P.++
+                         take (n - 3) (drop (m * (n - 3)) inners) P.++
+                         take 1 (drop m (edge east)) P.++
+                         s)
+                sAndSw
+                (reverse [0..n - 4])
 
     edge fn = P.map (pp . fn) [2..n - 2]
 
@@ -100,87 +112,52 @@ flatten :: Int -> Array D DIM2 a -> Array D DIM2 a
 flatten innerN = R.reshape (Z :. (innerN :: Int) :. (1 :: Int))
 
 mkJacobiMat :: Int -> Array D DIM2 Double
-mkJacobiMat n = withInt $
-                withBnd wr $
-                withBnd er $
-                withBnd sr $
-                withBnd nr $
-                corners
+mkJacobiMat n =
+  traverse (mkMatOfMat n)
+  (\(Z :. i :. j :. k :. l) ->
+    (Z :. j + i * (n - 2) :. l + k * (n - 2)))
+  (\f (Z :. i :. j) ->
+    f (Z :. i `div` (n - 1) :. i `mod` (n - 1) :. j `div` (n - 1) :. j `mod` (n - 1)))
 
+mkMatOfMat :: Int -> Array D DIM4 Double
+mkMatOfMat n = fromFunction (Z :. n - 1 :. n - 1 :. n - 1 :. n - 1) (mkMat4Elem n)
+
+mkMat4Elem :: Int -> DIM4 -> Double
+mkMat4Elem = go
   where
 
-    withInt cs = foldl' (R.++) cs [ flatten innerN $ ip k l | k <- [1..n - 3], l <- [1..n - 3 ] ]
+    go n (Z :. i :. j :. k :. l) = (mkMatAuxil n (Z :. i :. j :. k :. l))!(Z :. k :. l)
 
-    withBnd bndFn cs = foldl' (R.++) cs (P.map (flatten innerN) $ P.map bndFn [1..n - 3])
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i == 0 &&
+                                           j == 0     = nw n
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i == 0 &&
+                                           j >= 1 &&
+                                           j <= n - 3 = nr n j
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i == 0 &&
+                                           j == n - 2 = ne n
 
-    corners = flatten innerN nw R.++
-              flatten innerN ne R.++
-              flatten innerN sw R.++
-              flatten innerN se
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i >= 1 &&
+                                           i <= n - 3 &&
+                                           j == 0     = wr n i
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i >= 1 &&
+                                           i <= n - 3 &&
+                                           j >= 1 &&
+                                           j <= n - 3 = ip n i j
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i >= 1 &&
+                                           i <= n - 3 &&
+                                           j == n - 2 = er n i
 
-    innerN = (n - 1)^2
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i == n - 2 &&
+                                           j == 0     = sw n
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i == n - 2 &&
+                                           j >= 1 &&
+                                           j <= n - 3 = sr n j
+    mkMatAuxil n (Z :. i :. j :. _ :. _) | i == n - 2 &&
+                                           j == n - 2 = se n
 
-    nw = fromFunction (Z :. n - 1 :. n -1) nwAux
+    mkMatAuxil n (Z :. i :. j :. _ :. _)              = ip n i j
 
-    nwAux (Z :. 0 :. 1) =  1.0
-    nwAux (Z :. 0 :. 0) = -4.0
-    nwAux (Z :. 1 :. 0) =  1.0
-    nwAux _             =  0.0
-
-    ne = fromFunction (Z :. n - 1 :. n -1) neAux
-
-    neAux (Z :. 0 :. j) | j == n - 3 =  1.0
-    neAux (Z :. 0 :. j) | j == n - 2 = -4.0
-    neAux (Z :. 1 :. j) | j == n - 2 =  1.0
-    neAux _                          =  0.0
-
-    sw = fromFunction (Z :. n - 1 :. n -1) swAux
-
-    swAux (Z :. i :. 0) | i == n - 3 =  1.0
-    swAux (Z :. i :. 0) | i == n - 2 = -4.0
-    swAux (Z :. i :. 1) | i == n - 2 =  1.0
-    swAux _                          =  0.0
-
-    se = fromFunction (Z :. n - 1 :. n -1) seAux
-
-    seAux (Z :. i :. j) | i == n - 3 && j == n - 2 =  1.0
-    seAux (Z :. i :. j) | i == n - 2 && j == n - 2 = -4.0
-    seAux (Z :. i :. j) | i == n - 2 && j == n - 3 =  1.0
-    seAux _                                        =  0.0
-
-    nr l = fromFunction (Z :. n - 1 :. n -1) (nrAux l)
-
-    nrAux l (Z :. 0 :. j) | j == l     = -4.0
-    nrAux l (Z :. 0 :. j) | j == l - 1 =  1.0
-    nrAux l (Z :. 0 :. j) | j == l + 1 =  1.0
-    nrAux l (Z :. 1 :. j) | j == l     =  1.0
-    nrAux _ _                          =  0.0
-
-    sr l = fromFunction (Z :. n - 1 :. n -1) (srAux l)
-
-    srAux l (Z :. i :. j) | i == n - 2 && j == l     = -4.0
-    srAux l (Z :. i :. j) | i == n - 2 && j == l - 1 =  1.0
-    srAux l (Z :. i :. j) | i == n - 2 && j == l + 1 =  1.0
-    srAux l (Z :. i :. j) | i == n - 3 && j == l     =  1.0
-    srAux _ _                                        =  0.0
-
-    er l = fromFunction (Z :. n - 1 :. n -1) (erAux l)
-
-    erAux l (Z :. i :. j) | i == l     && j == n - 2 = -4.0
-    erAux l (Z :. i :. j) | i == l - 1 && j == n - 2 =  1.0
-    erAux l (Z :. i :. j) | i == l + 1 && j == n - 2 =  1.0
-    erAux l (Z :. i :. j) | i == l     && j == n - 3 =  1.0
-    erAux _ _                                        =  0.0
-
-    wr l = fromFunction (Z :. n - 1 :. n -1) (wrAux l)
-
-    wrAux l (Z :. i :. j) | i == l     && j == 0 = -4.0
-    wrAux l (Z :. i :. j) | i == l - 1 && j == 0 =  1.0
-    wrAux l (Z :. i :. j) | i == l + 1 && j == 0 =  1.0
-    wrAux l (Z :. i :. j) | i == l     && j == 1 =  1.0
-    wrAux _ _                                    =  0.0
-
-    ip k l = fromFunction (Z :. n - 1 :. n -1) (ipAux k l)
+    ip n k l = fromFunction (Z :. n - 1 :. n -1) (ipAux k l)
 
     ipAux k l (Z :. i :. j) | i == k     && j == l     = -4.0
     ipAux k l (Z :. i :. j) | i == k - 1 && j == l     =  1.0
@@ -188,6 +165,66 @@ mkJacobiMat n = withInt $
     ipAux k l (Z :. i :. j) | i == k     && j == l - 1 =  1.0
     ipAux k l (Z :. i :. j) | i == k     && j == l + 1 =  1.0
     ipAux _ _ _                                        =  0.0
+
+    nw n = fromFunction (Z :. n - 1 :. n -1) nwAux
+
+    nwAux (Z :. 0 :. 1) =  1.0
+    nwAux (Z :. 0 :. 0) = -4.0
+    nwAux (Z :. 1 :. 0) =  1.0
+    nwAux _             =  0.0
+
+    ne n = fromFunction (Z :. n - 1 :. n -1) (neAux n)
+
+    neAux n (Z :. 0 :. j) | j == n - 3 =  1.0
+    neAux n (Z :. 0 :. j) | j == n - 2 = -4.0
+    neAux n (Z :. 1 :. j) | j == n - 2 =  1.0
+    neAux _ _                          =  0.0
+
+    sw n = fromFunction (Z :. n - 1 :. n -1) (swAux n)
+
+    swAux n (Z :. i :. 0) | i == n - 3 =  1.0
+    swAux n (Z :. i :. 0) | i == n - 2 = -4.0
+    swAux n (Z :. i :. 1) | i == n - 2 =  1.0
+    swAux _ _                          =  0.0
+
+    se n = fromFunction (Z :. n - 1 :. n -1) (seAux n)
+
+    seAux n (Z :. i :. j) | i == n - 3 && j == n - 2 =  1.0
+    seAux n (Z :. i :. j) | i == n - 2 && j == n - 2 = -4.0
+    seAux n (Z :. i :. j) | i == n - 2 && j == n - 3 =  1.0
+    seAux _ _                                        =  0.0
+
+    nr n l = fromFunction (Z :. n - 1 :. n -1) (nrAux l)
+
+    nrAux l (Z :. 0 :. j) | j == l     = -4.0
+    nrAux l (Z :. 0 :. j) | j == l - 1 =  1.0
+    nrAux l (Z :. 0 :. j) | j == l + 1 =  1.0
+    nrAux l (Z :. 1 :. j) | j == l     =  1.0
+    nrAux _ _                          =  0.0
+
+    sr n l = fromFunction (Z :. n - 1 :. n -1) (srAux n l)
+
+    srAux n l (Z :. i :. j) | i == n - 2 && j == l     = -4.0
+    srAux n l (Z :. i :. j) | i == n - 2 && j == l - 1 =  1.0
+    srAux n l (Z :. i :. j) | i == n - 2 && j == l + 1 =  1.0
+    srAux n l (Z :. i :. j) | i == n - 3 && j == l     =  1.0
+    srAux _ _ _                                        =  0.0
+
+    er n l = fromFunction (Z :. n - 1 :. n -1) (erAux n l)
+
+    erAux n l (Z :. i :. j) | i == l     && j == n - 2 = -4.0
+    erAux n l (Z :. i :. j) | i == l - 1 && j == n - 2 =  1.0
+    erAux n l (Z :. i :. j) | i == l + 1 && j == n - 2 =  1.0
+    erAux n l (Z :. i :. j) | i == l     && j == n - 3 =  1.0
+    erAux _ _ _                                        =  0.0
+
+    wr n l = fromFunction (Z :. n - 1 :. n -1) (wrAux l)
+
+    wrAux l (Z :. i :. j) | i == l     && j == 0 = -4.0
+    wrAux l (Z :. i :. j) | i == l - 1 && j == 0 =  1.0
+    wrAux l (Z :. i :. j) | i == l + 1 && j == 0 =  1.0
+    wrAux l (Z :. i :. j) | i == l     && j == 1 =  1.0
+    wrAux _ _                                    =  0.0
 
 mkJacobiVars :: Int -> Doc
 mkJacobiVars n =
@@ -197,7 +234,7 @@ mkJacobiVars n =
                        braces (text "blue") <>
                        braces (text "u_" <> braces (int i <> int j))
                      )
-            | i <- [1..n - 1], j <- [1..n - 1]
+            | j <- [1..n - 1], i <- [1..n - 1]
             ]
 
 class Tex a where
@@ -218,10 +255,10 @@ instance (Source t a, Tex a) => Tex (Array t DIM2 a) where
      elems = [ tex (slice a j) | i <- [0..n-1], let j = Any :. i :. All]
      Z :. n :. _m = extent a
 
-matrix :: Int -> String
-matrix n =  render $
+matrix' :: Int -> String
+matrix' n =  render $
             vcat [ text "\n\\begin{bmatrix}"
-                 , tex $ transpose $ mkJacobiMat n
+                 , tex $ mkJacobiMat n
                  , text "\\end{bmatrix}"
                  , text "\\begin{bmatrix}"
                  , mkJacobiVars n
@@ -231,5 +268,3 @@ matrix n =  render $
                  , vcat $ punctuate (space <> text "\\\\") $ mkJacobiBnd fn1a fn2a n
                  , text "\\end{bmatrix}\n"
                  ]
-
-
