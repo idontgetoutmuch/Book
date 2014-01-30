@@ -82,6 +82,9 @@ Haskell Preamble
 
 > module Chap1 (
 >     test
+>   , slnHMat
+>   , test5
+>   , slnHMat5
 >   , midPoint
 >   , main'
 >   , main
@@ -188,7 +191,7 @@ has a binding to [LAPACK](http://www.netlib.org/lapack/).
 First we create a matrix in *hmatrix* form
 
 > matHMat = do
->   matRepa <- computeP $ transpose $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
+>   matRepa <- computeP $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
 >   return $ 4 >< 4 $ toList matRepa
 
     [ghci]
@@ -196,22 +199,17 @@ First we create a matrix in *hmatrix* form
 
 Next we create the column vector as presribed by the boundary conditions
 
-> ux0 = const 1.0
-> ux1 = const 2.0
-> u0y = const 1.0
-> u1y = const 2.0
-
-> bndFn :: Int -> Int -> (Int, Int) -> Double
-> bndFn n m (0, j) |           j > 0 && j < m = u0y j
-> bndFn n m (i, j) | i == n && j > 0 && j < m = u1y j
-> bndFn n m (i, 0) |           i > 0 && i < n = ux0 i
-> bndFn n m (i, j) | j == m && i > 0 && i < n = ux1 i
-> bndFn _ _ _                                 = 0.0
+> bndFnEg1 :: Int -> Int -> (Int, Int) -> Double
+> bndFnEg1 _ m (0, j) |           j > 0 && j < m = 1.0
+> bndFnEg1 n m (i, j) | i == n && j > 0 && j < m = 2.0
+> bndFnEg1 n _ (i, 0) |           i > 0 && i < n = 1.0
+> bndFnEg1 n m (i, j) | j == m && i > 0 && i < n = 2.0
+> bndFnEg1 _ _ _                                 = 0.0
 
 > bnd1 :: Int -> [(Int, Int)] -> Double
 > bnd1 n = negate .
 >          sum .
->          P.map (bndFn n n)
+>          P.map (bndFnEg1 n n)
 
 > bndHMat = 4 >< 1 $ mkJacobiBnd fromIntegral bnd1 3
 
@@ -223,19 +221,93 @@ Next we create the column vector as presribed by the boundary conditions
     [ghci]
     slnHMat
 
-Inverting a matrix is expensive so instead we use Jacobi
-iteration. Given $A\boldsymbol{x} = \boldsymbol{b}$
+The Jacobi Method
+-----------------
+
+Inverting a matrix is expensive so instead we use the (possibly most)
+classical of all iterative methos, Jacobi iteration. Given
+$A\boldsymbol{x} = \boldsymbol{b}$ and an estimated solution
+$\boldsymbol{x}_i^{[k]}$, we can generate an improved estimate
+$\boldsymbol{x}_i^{[k+1]}$. See [@iserles2009first Chapter 12] for the
+details on convergence and convergence rates.
 
 $$
 \boldsymbol{x}_i^{[k+1]} = \frac{1}{A_{i,i}}\Bigg[\boldsymbol{b}_i - \sum_{j \neq i} A_{i,j}\boldsymbol{x}_j^{[k]}\Bigg]
 $$
 
-* Boundary condition mask
-* Boundary condition values
-* Initial matrix
+The simple example above does not really give a clear picture of what
+happens in general during the update of the estimate. Here is a larger
+example
 
-Check if this element is on the border of the matrix.
-If so we can't apply the stencil because we don't have all the neighbours.
+```{.dia height='500'}
+import Diagram
+dia = example 5 5
+```
+
+~~~~ {#verbatim include="matrix5.tex"}
+~~~~
+
+Expanding the matrix equation for a $\color{blue}{\text{point}}$ *not*
+in the $\color{red}{\text{boundary}}$ we get
+
+$$
+x_{i,j}^{[k+1]} = \frac{1}{4}(x_{i-1,j} + x_{i,j-1} + x_{i+1,j} + x_{i,j+1})
+$$
+
+Cleary the values of the points in the boundary are fixed and must
+remain at those values for every iteration.
+
+Here is the method using *repa*. To produce an improved estimate, we
+define a function *relaxLaplace* and we pass in a *repa* matrix
+representing our original estimate $\boldsymbol{x}_i^{[k]}$ and
+receive the one step update $\boldsymbol{x}_i^{[k+1]}$ also as a
+*repa* matrix.
+
+We pass in a boundary condition mask which specifies which points are
+boundary points; a point is a boundary point if its value is 1.0 and
+not if its value is 0.0.
+
+> boundMask :: Monad m => Int -> Int -> m (Array U DIM2 Double)
+> boundMask gridSizeX gridSizeY = computeP $
+>                                 fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
+>   where
+>     f (Z :. _ix :.  iy) | iy == 0         = 0
+>     f (Z :. _ix :.  iy) | iy == gridSizeY = 0
+>     f (Z :.  ix :. _iy) | ix == 0         = 0
+>     f (Z :.  ix :. _iy) | ix == gridSizeX = 0
+>     f _                                   = 1
+
+Better would be to use at least a *Bool* as the example below show but
+we wish to modify the code from the [repa git
+repo](https://github.com/DDCSF/repa) as little as possible.
+
+
+> useBool :: IO (Array U DIM1 Double)
+> useBool = computeP $
+>           R.map (fromIntegral . fromEnum) $
+>           fromFunction (Z :. (3 :: Int)) (const True)
+
+    [ghci]
+    useBool
+
+We further pass in the boundary conditions. We construct these by
+using a function which takes the grid size in the $x$ direction,
+the grid size in the $y$ direction and a given pair of co-ordinates in
+the grid and returns a value at this position.
+
+> boundValue :: Monad m =>
+>               Int ->
+>               Int ->
+>               (Int -> Int -> (Int, Int) -> Double) ->
+>               m (Array U DIM2 Double)
+> boundValue gridSizeX gridSizeY bndFn =
+>   computeP $
+>   fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) g
+>   where
+>     g (Z :. ix :. iy) = bndFn gridSizeX gridSizeY (ix, iy)
+
+Note that we only update an element in the *repa* matrix
+representation of the vector if it is **not** on the boundary.
 
 > relaxLaplace
 >   :: Monad m
@@ -264,10 +336,7 @@ If so we can't apply the stencil because we don't have all the neighbours.
 >       =  (i == 0) || (i >= width  - 1)
 >          || (j == 0) || (j >= height - 1)
 
-* Number of iterations to use.
-* Boundary value mask.
-* Boundary values.
-* Initial state.
+We can use this to iterate as many times as we like.
 
 > solveLaplace
 > 	:: Monad m
@@ -288,44 +357,69 @@ If so we can't apply the stencil because we don't have all the neighbours.
 >       = do arr' <- relaxLaplace arrBoundMask arrBoundValue arr
 >            go (i - 1) arr'
 
-> boundMask :: Monad m => Int -> Int -> m (Array U DIM2 Double)
-> boundMask gridSizeX gridSizeY = computeP $
->                                 fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
->   where
->     f (Z :. _ix :.  iy) | iy == 0         = 0
->     f (Z :. _ix :.  iy) | iy == gridSizeY = 0
->     f (Z :.  ix :. _iy) | ix == 0         = 0
->     f (Z :.  ix :. _iy) | ix == gridSizeX = 0
->     f _                                   = 1
-
-> boundValue1 :: Monad m => Int -> Int -> m (Array U DIM2 Double)
-> boundValue1 gridSizeX gridSizeY = computeP $
->                                   fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) g
->   where
->     g (Z :. ix :. iy) = bndFn gridSizeX gridSizeY (ix, iy)
+For our small example, we set the initial array to $0$ at every
+point. Note that the function which updates the grid, *relaxLaplace*
+will immediately over-write the points on the boundary with values
+given by the boundary condition.
 
 > initArrM :: IO (Array U DIM2 Double)
 > initArrM = computeP $ fromFunction (Z :. 4 :. 4) (const 0.0)
 
+We can now test the Jacobi method
+
 > test :: Int -> IO (Array U DIM2 Double)
 > test nIter = do
 >   mask    <- boundMask 3 3
->   val     <- boundValue1 3 3
+>   val     <- boundValue 3 3 bndFnEg1
 >   initArr <- initArrM
 >   solveLaplace nIter mask val initArr
+
+After 55 iterations, we obtain convergence up to the limit of accuracy
+of double precision floating point numbers.
 
     [ghci]
     test 55 >>= return . pPrint
 
+A Larger Example
+----------------
+
+> matHMat5 = do
+>   matRepa <- computeP $ mkJacobiMat 5 :: IO (Array U DIM2 Double)
+>   return $ 16 >< 16 $ toList matRepa
+
+    [ghci]
+    matHMat5
+
+> bndHMat5 = 16 >< 1 $ mkJacobiBnd fromIntegral bnd1 5
+
+    [ghci]
+     bndHMat5
+
+> slnHMat5 = matHMat5 >>= return . flip linearSolve bndHMat5
+
+    [ghci]
+    slnHMat5
+
+> initArr5M :: IO (Array U DIM2 Double)
+> initArr5M = computeP $ fromFunction (Z :. 6 :. 6) (const 0.0)
+
+> test5 :: Int -> IO (Array U DIM2 Double)
+> test5 nIter = do
+>   mask    <- boundMask 5 5
+>   val     <- boundValue 5 5 bndFnEg1
+>   initArr <- initArr5M
+>   solveLaplace nIter mask val initArr
+
+    [ghci]
+    test5 178 >>= return . pPrint
+
+With a larger grid we need more points (178) before the Jacobi method
+converges.
+
+Stencils
+========
+
 Computational stencil as in page 149?
-
-```{.dia height='500'}
-import Diagram
-dia = example 5 5
-```
-
-~~~~ {#verbatim include="matrix5.tex"}
-~~~~
 
 We take the example from [@iserles2009first Chapter 8] where the
 boundary conditions are:
@@ -345,8 +439,8 @@ $$
 u(x, y) = \frac{y}{(1 + x)^2 + y^2}
 $$
 
-> boundValue :: Monad m => Int -> Int -> m (Array U DIM2 Double)
-> boundValue gridSizeX gridSizeY = computeP $
+> boundValueAlt :: Monad m => Int -> Int -> m (Array U DIM2 Double)
+> boundValueAlt gridSizeX gridSizeY = computeP $
 >                                  fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
 >   where
 >     f (Z :. _ix :. iy) | iy == 0         = 0
@@ -378,9 +472,9 @@ $$
 
 > data Options =
 >   Options
->   { gridWidth  :: Int
->   , gridHeight :: Int
->   , iterations :: Int
+>   { gridWidth   :: Int
+>   , gridHeight  :: Int
+>   , _iterations :: Int
 >   } deriving Show
 
 > options :: Parser Options
@@ -420,7 +514,7 @@ $$
 
 > main' :: Options -> IO ()
 > main' os = do
->   bv <- boundValue (gridWidth os) (gridHeight os)
+>   bv <- boundValueAlt (gridWidth os) (gridHeight os)
 >   bm <- boundMask  (gridWidth os) (gridHeight os)
 >   sl1 <- solveLaplace 1 bm bv bv
 >   sl2 <- analyticValue
