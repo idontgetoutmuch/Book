@@ -21,7 +21,43 @@ Laplacian itself is also used computer vision for edge detection
 
 In Haskell terms this gives us the opportunity to use the repa
 library, compare it against a similar implementation in C and use
-H(?)Lapack and similar against base LAPACK itself.
+[hmatrix](http://hackage.haskell.org/package/hmatrix) which is based
+on H(?)Lapack and similar against base LAPACK itself.
+
+A Motivating Example: The Steady State Heat Equation
+----------------------------------------------------
+
+Suppose we have a square thin plate of metal and we hold each of edges
+at a temperature which may vary along the edge but is fixed for all
+time. After some period depending on the conductivity of the metal,
+the temperature at every point on the plate will have stabilised.
+
+[Fourier's
+law](http://en.wikipedia.org/wiki/Thermal_conduction#Fourier.27s_law)
+states that the rate of heat transfer or the flux $\boldsymbol{\sigma}$ is
+proportional to the (negative --- as heat flows from hot to cold)
+temperature gradient and that it flows in the direction of greatest
+temperature change. We can write this as
+
+$$
+\boldsymbol{\sigma} = -k\nabla \phi
+$$
+
+where $\phi : \mathbb{R} \times \mathbb{R} \rightarrow \mathbb{R}$ is
+the temperature at any given point on the plate and $k$ is the
+conductivity of the metal.
+
+Moreover, we know that for any region on the plate, the total amount
+of heat flowing in must be balanced by the amount of heat flowing
+out. We can write this as
+
+$$
+\nabla \cdot \boldsymbol{\sigma} = 0
+$$
+
+```{.dia width='600'}
+dia = image "diagrams/heatmap.png" 1.5 1.0
+```
 
 Colophon
 ========
@@ -64,9 +100,6 @@ A lot of the code for this post is taken from the
 [repa](http://repa.ouroborus.net) package itself. Many thanks to the
 repa team for providing the package and the example code.
 
-The Steady State Heat Equation
-==============================
-
 Haskell Preamble
 ================
 
@@ -85,6 +118,9 @@ Haskell Preamble
 >   , slnHMat
 >   , test5
 >   , slnHMat5
+>   , boundMask
+>   , boundValue
+>   , bndFnEg1
 >   , midPoint
 >   , main'
 >   , main
