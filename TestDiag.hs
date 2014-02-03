@@ -26,6 +26,7 @@ import Diagrams.Backend.Cairo.CmdLine ( B ) -- FIXME: It seems we should
                                             -- variable rather than
                                             -- having to import this
 
+
 redBlack :: Int -> [Int]
 redBlack n = concat $
              take n $
@@ -33,13 +34,17 @@ redBlack n = concat $
                    , take n $ cycle [-1, 1]
                    ]
 
+-- FIXME: Disgusting - we assume that 0.0 means something special. We
+-- should use Maybe.
+-- FIXME: c is not used.
 gridSq :: Double -> Double -> ((Int, Double), (Int, Int, Int)) -> Diagram B R2
 gridSq minX maxX ((c, x), n) = text (printf "%2.2f" x) # scale 0.2 # fc white
-                          <> square 1 # lw 0 # fc (getColour x) # named n
+                               <> square 1 # lw 0 # fc (getColour x) # named n
 
   where
 
-    getColour x = blend ((x - minX) / (maxX - minX)) red blue
+    getColour x | x == 0.0 = grey
+    getColour x            = blend ((x - minX) / (maxX - minX)) red blue
 
 -- FIXME: remove gridNum - it has no use here - it might be possible
 -- to make the labels polymorphic

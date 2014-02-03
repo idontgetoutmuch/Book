@@ -55,9 +55,44 @@ $$
 \nabla \cdot \boldsymbol{\sigma} = 0
 $$
 
+Substituting the first equation into the second we obtain Laplace's equation
+
+$$
+\nabla^2 \phi = 0
+$$
+
+For example, suppose we hold the temperature of the edges of the plate
+as follows
+
+$$
+\begin{matrix}
+\phi(x, 0) = 1 & \phi(x, 1) = 2 & \phi(0, y) = 1 & \phi(1, y) = 2
+\end{matrix}
+$$
+
+then after some time the temperature of the plate will be as shown in
+the heatmap below.
+
 ```{.dia width='600'}
 dia = image "diagrams/heatmap.png" 1.5 1.0
 ```
+
+Notes:
+
+ 1. Red is hot.
+
+ 2. Blue is cold.
+
+ 3. The heatmap is created by a finite difference method described
+below.
+
+ 4. The $y$-axis points down (not up) i.e. $\phi(x,1)$ is at the
+bottom, reflecting the fact that we are using an array in the finite
+difference method and rows go down not up.
+
+ 5. The corners are grey because in the finite difference method these
+play no part in determining temperatures in the interior of the plate.
+
 
 Colophon
 ========
