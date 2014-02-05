@@ -26,6 +26,6 @@ main = do
 
   finArr <- solveLaplace 200 1.0 bndMsk bndVal intArr
 
-  displayGrid n 1 finArr "diagrams/heatmap.png"
+  displayGrid n finArr "diagrams/heatmap.png"
 
 

@@ -26,19 +26,11 @@ import Diagrams.Backend.Cairo.CmdLine ( B ) -- FIXME: It seems we should
                                             -- variable rather than
                                             -- having to import this
 
-
-redBlack :: Int -> [Int]
-redBlack n = concat $
-             take n $
-             cycle [ take n $ cycle [1, -1]
-                   , take n $ cycle [-1, 1]
-                   ]
-
 -- FIXME: Disgusting - we assume that 0.0 means something special. We
 -- should use Maybe.
 -- FIXME: c is not used.
-gridSq :: Double -> Double -> ((Int, Double), (Int, Int, Int)) -> Diagram B R2
-gridSq minX maxX ((c, x), n) = text (printf "%2.2f" x) # scale 0.2 # fc white
+gridSq :: Double -> Double -> (Double, (Int, Int)) -> Diagram B R2
+gridSq minX maxX (x, n) = text (printf "%2.2f" x) # scale 0.2 # fc white
                                <> square 1 # lw 0 # fc (getColour x) # named n
 
   where
@@ -49,26 +41,26 @@ gridSq minX maxX ((c, x), n) = text (printf "%2.2f" x) # scale 0.2 # fc white
 -- FIXME: remove gridNum - it has no use here - it might be possible
 -- to make the labels polymorphic
 
-grid :: Int -> Int -> [(Int,Double)] -> Diagram B R2
-grid gridNum n vs = if aLen == sLen
-                    then result
-                    else error $ "Specified grid size " ++ show sLen ++
-                                 " Actual grid size "   ++ show aLen
+grid :: Int -> [Double] -> Diagram B R2
+grid n vs = if aLen == sLen
+            then result
+            else error $ "Specified grid size " ++ show sLen ++
+                         " Actual grid size "   ++ show aLen
   where
     aLen = length vs
     sLen = n * n
     result = vcat $
              map hcat $
              map (map (gridSq 1.0 2.0)) $
-             chunksOf n (zip vs [(gridNum, i, j) | i <- [1..n], j <- [1..n]])
+             chunksOf n (zip vs [(i, j) | i <- [1..n], j <- [1..n]])
 
-displayGrid :: Int -> Int -> Array U DIM2 Double -> FilePath -> IO ()
-displayGrid n gridNum ts fn =
+displayGrid :: Int -> Array U DIM2 Double -> FilePath -> IO ()
+displayGrid n ts fn =
   mainRender ( DiagramOpts (Just 900) (Just 600) fn
              , DiagramLoopOpts False Nothing 0)
-             (valuedGrid n gridNum ts)
+             (valuedGrid n ts)
 
-valuedGrid :: Int -> Int -> Array U DIM2 Double -> Diagram B R2
-valuedGrid n gridNum ts =
-  grid (gridNum+1) (n+1) (zip (redBlack (n+1)) (toList ts))
+valuedGrid :: Int -> Array U DIM2 Double -> Diagram B R2
+valuedGrid n ts =
+  grid (n+1) (toList ts)
 

@@ -11,33 +11,44 @@ bibliography: Book.bib
 Introduction
 ============
 
-We are going to solve Laplace's equation $\nabla^2 \phi = 0 $ in 2
-dimensions. One motivation for doing so is that it is a moderately
-simple equation (in so far as partial differential equations are
-simple) that has been well studied for centuries. We shall give an
-example of its use in the steady state heat equation. Furthermore, the
-Laplacian itself is also used computer vision for edge detection
-(reference required).
+Suppose we have a square thin plate of metal and we hold each of edges
+at a temperature which may vary along the edge but is fixed for all
+time. After some period depending on the conductivity of the metal,
+the temperature at every point on the plate will have stabilised. What
+is the temperature at any point?
+
+We can calculate this using by solving Laplace's equation $\nabla^2
+\phi = 0 $ in 2 dimensions. Apart from the preceeding motivation, a
+more compelling reason for doing so is that it is a moderately simple
+equation, in so far as partial differential equations are simple, that
+has been well studied for centuries.
 
 In Haskell terms this gives us the opportunity to use the repa
 library, compare it against a similar implementation in C and use
 [hmatrix](http://hackage.haskell.org/package/hmatrix) which is based
-on H(?)Lapack and similar against base LAPACK itself.
+on [Lapack](http://www.netlib.org/lapack/) (as well as other
+libraries) albeit hmatrix only to illustrate a numerical method which
+we use to solve Laplace's equation.
+
+One way in which using repa stands out from the equivalent C
+implementation is that it gives a language in which we can specify the
+[stencil](http://en.wikipedia.org/wiki/Stencil_%28numerical_analysis%29)
+being used to solve the equation. As an illustration we substitute the
+[nine
+point](http://www.physics.arizona.edu/~restrepo/475B/Notes/sourcehtml/node52.html#fg.nin2)
+method for the [five
+point](http://en.wikipedia.org/wiki/Five-point_stencil) method merely
+by changing the stencil.
 
 A Motivating Example: The Steady State Heat Equation
 ----------------------------------------------------
 
-Suppose we have a square thin plate of metal and we hold each of edges
-at a temperature which may vary along the edge but is fixed for all
-time. After some period depending on the conductivity of the metal,
-the temperature at every point on the plate will have stabilised.
-
 [Fourier's
 law](http://en.wikipedia.org/wiki/Thermal_conduction#Fourier.27s_law)
-states that the rate of heat transfer or the flux $\boldsymbol{\sigma}$ is
-proportional to the (negative --- as heat flows from hot to cold)
-temperature gradient and that it flows in the direction of greatest
-temperature change. We can write this as
+states that the rate of heat transfer or the flux
+$\boldsymbol{\sigma}$ is proportional to the negative temperature
+gradient, as heat flows from hot to cold, and further that it flows in
+the direction of greatest temperature change. We can write this as
 
 $$
 \boldsymbol{\sigma} = -k\nabla \phi
@@ -138,14 +149,16 @@ repa team for providing the package and the example code.
 Haskell Preamble
 ================
 
-> {-# OPTIONS_GHC -Wall                      #-}
-> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
-> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
-> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
-> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
-> {-# OPTIONS_GHC -fno-warn-orphans          #-}
+{-# OPTIONS_GHC -Wall                      #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
+{-# OPTIONS_GHC -fno-warn-type-defaults    #-}
+{-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
+{-# OPTIONS_GHC -fno-warn-missing-methods  #-}
+{-# OPTIONS_GHC -fno-warn-orphans          #-}
 
 > {-# LANGUAGE BangPatterns                  #-}
+> {-# LANGUAGE TemplateHaskell               #-}
+> {-# LANGUAGE QuasiQuotes #-}
 > {-# LANGUAGE NoMonomorphismRestriction     #-}
 
 > module Chap1 (
@@ -161,12 +174,14 @@ Haskell Preamble
 >   , main
 >   ) where
 >
-> import Data.Array.Repa                  as R
-> import Data.Array.Repa.Unsafe           as R
+> import Data.Array.Repa                   as R
+> import Data.Array.Repa.Unsafe            as R
 > import Data.Array.Repa.Algorithms.Matrix
+> import Data.Array.Repa.Stencil           as A
+> import Data.Array.Repa.Stencil.Dim2      as A
 
-> import qualified SolverStencil          as SS
-> import Prelude                          as P
+> import qualified SolverStencil           as SS
+> import Prelude                           as P
 
 > import Text.Printf
 > import Options.Applicative
@@ -474,6 +489,9 @@ A Larger Example
 > initArr5M :: IO (Array U DIM2 Double)
 > initArr5M = computeP $ fromFunction (Z :. 6 :. 6) (const 0.0)
 
+> mkInitArrM :: Monad m => Int -> m (Array U DIM2 Double)
+> mkInitArrM n = computeP $ fromFunction (Z :. (n + 1) :. (n + 1)) (const 0.0)
+>
 > test5 :: Int -> IO (Array U DIM2 Double)
 > test5 nIter = do
 >   mask    <- boundMask 5 5
@@ -489,6 +507,82 @@ converges.
 
 Stencils
 ========
+
+> fivePoint :: Stencil DIM2 Double
+> fivePoint = [stencil2|  0 1 0
+>                         1 0 1
+>                         0 1 0 |]
+
+> ninePoint :: Stencil DIM2 Double
+> ninePoint = [stencil2| 1 4 1
+>                        4 0 4
+>                        1 4 1 |]
+
+> solveLaplaceStencil :: Monad m
+>                        => Int
+>                        -> Array U DIM2 Double
+>                        -> Array U DIM2 Double
+>                        -> Array U DIM2 Double
+>                        -> m (Array U DIM2 Double)
+> solveLaplaceStencil !steps !arrBoundMask !arrBoundValue !arrInit
+>  = go steps arrInit
+>  where
+>    go 0 !arr = return arr
+>    go n !arr
+>      = do arr' <- relaxLaplace arr
+>           go (n - 1) arr'
+>
+>    relaxLaplace arr
+>      = computeP
+>      $ R.szipWith (+) arrBoundValue
+>      $ R.szipWith (*) arrBoundMask
+>      $ R.smap (/ 4)
+>      $ mapStencil2 (BoundConst 0)
+>      fivePoint arr
+
+> solveLaplaceStencil' :: Monad m
+>                        => Int
+>                        -> Stencil DIM2 Double
+>                        -> Int
+>                        -> Array U DIM2 Double
+>                        -> Array U DIM2 Double
+>                        -> Array U DIM2 Double
+>                        -> m (Array U DIM2 Double)
+> solveLaplaceStencil' !steps !st !nF !arrBoundMask !arrBoundValue !arrInit
+>  = go steps arrInit
+>  where
+>    go 0 !arr = return arr
+>    go n !arr
+>      = do arr' <- relaxLaplace arr
+>           go (n - 1) arr'
+>
+>    relaxLaplace arr
+>      = computeP
+>      $ R.szipWith (+) arrBoundValue
+>      $ R.szipWith (*) arrBoundMask
+>      $ R.smap (/ (fromIntegral nF))
+>      $ mapStencil2 (BoundConst 0)
+>      st arr
+
+> testStencil5 :: Int -> IO (Array U DIM2 Double)
+> testStencil5 nIter = do
+>   mask    <- boundMask 5 5
+>   val     <- boundValue 5 5 bndFnEg1
+>   initArr <- initArr5M
+>   solveLaplaceStencil' nIter fivePoint 4 mask val initArr
+
+    [ghci]
+    testStencil5 178 >>= return . pPrint
+
+> testStencil9 :: Int -> IO (Array U DIM2 Double)
+> testStencil9 nIter = do
+>   mask    <- boundMask 5 5
+>   val     <- boundValue 5 5 bndFnEg1
+>   initArr <- initArr5M
+>   solveLaplaceStencil' nIter ninePoint 20 mask val initArr
+
+    [ghci]
+    testStencil9 150 >>= return . pPrint
 
 Computational stencil as in page 149?
 
@@ -509,6 +603,49 @@ This has the exact solution
 $$
 u(x, y) = \frac{y}{(1 + x)^2 + y^2}
 $$
+
+> bndFnEg2 :: Int -> Int -> (Int, Int) -> Double
+> bndFnEg2 _ m (0, j) |           j >= 0 && j <  m = 1.0
+> bndFnEg2 n m (i, j) | i == n && j >  0 && j <= m = 2.0
+> bndFnEg2 n _ (i, 0) |           i >  0 && i <= n = 1.0
+> bndFnEg2 n m (i, j) | j == m && i >= 0 && i <  n = 2.0
+> bndFnEg2 _ _ _                                   = 0.0
+
+> bndFnEg3 :: Int -> Int -> (Int, Int) -> Double
+> bndFnEg3 _ m (0, j) |           j >= 0 && j <  m = y / (1 + y^2)
+>   where y = (fromIntegral j) / (fromIntegral m)
+> bndFnEg3 n m (i, j) | i == n && j >  0 && j <= m = y / (4 + y^2)
+>   where y = fromIntegral j / fromIntegral m
+> bndFnEg3 n _ (i, 0) |           i >  0 && i <= n = 0.0
+> bndFnEg3 n m (i, j) | j == m && i >= 0 && i <  n = 1 / ((1 + x)^2 + 1)
+>   where x = fromIntegral i / fromIntegral n
+> bndFnEg3 _ _ _                                   = 0.0
+
+
+> exact :: Int -> Int -> IO (Array U DIM2 Double)
+> exact n m = computeP $ fromFunction (Z :. (n + 1) :. (m + 1)) f
+>   where
+>     f (Z :. i :. j) = y / ((1 + x)^2 + y^2)
+>       where
+>         x = fromIntegral i / fromIntegral n
+>         y = fromIntegral j / fromIntegral m
+
+> reallyTest ::
+>   Monad m =>
+>   Int ->
+>   Int ->
+>   (Int -> Int -> (Int, Int) -> Double) ->
+>   (Int ->
+>    Array U DIM2 Double ->
+>    Array U DIM2 Double ->
+>    Array U DIM2 Double ->
+>    m (Array U DIM2 Double)) ->
+>   m (Array U DIM2 Double)
+> reallyTest nGrid nIter boundaryFn solver = do
+>   mask    <- boundMask nGrid nGrid
+>   val     <- boundValue nGrid nGrid boundaryFn
+>   initArr <- mkInitArrM nGrid
+>   solver nIter mask val initArr
 
 > boundValueAlt :: Monad m => Int -> Int -> m (Array U DIM2 Double)
 > boundValueAlt gridSizeX gridSizeY = computeP $
