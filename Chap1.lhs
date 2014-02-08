@@ -508,39 +508,41 @@ converges.
 Stencils
 ========
 
+Since we are functional programmers, our natural inclination is to see
+if we can find an abstraction for (at least some) numerical
+methods. We notice that we are updating each grid element (except the
+boundary elements) by taking the North, East, South and West
+surrounding squares and calculating a linear combination of these.
+
+```{.dia height='300'}
+import Diagram
+dia = fivePointStencil
+```
+
+Repa provides this abstraction and we can describe the update
+calculation as a
+[stencil](http://en.wikipedia.org/wiki/Stencil_%28numerical_analysis%29). [@Lippmeier:2011:EPS:2034675.2034684]
+gives full details of stencils in repa.
+
 > fivePoint :: Stencil DIM2 Double
 > fivePoint = [stencil2|  0 1 0
 >                         1 0 1
 >                         0 1 0 |]
+
+Using stencils allows us to modify our numerical method with a very
+simple change. For example, suppose we wish to use the nine point
+method then we only need write down the stencil for it
 
 > ninePoint :: Stencil DIM2 Double
 > ninePoint = [stencil2| 1 4 1
 >                        4 0 4
 >                        1 4 1 |]
 
-> solveLaplaceStencil :: Monad m
->                        => Int
->                        -> Array U DIM2 Double
->                        -> Array U DIM2 Double
->                        -> Array U DIM2 Double
->                        -> m (Array U DIM2 Double)
-> solveLaplaceStencil !steps !arrBoundMask !arrBoundValue !arrInit
->  = go steps arrInit
->  where
->    go 0 !arr = return arr
->    go n !arr
->      = do arr' <- relaxLaplace arr
->           go (n - 1) arr'
->
->    relaxLaplace arr
->      = computeP
->      $ R.szipWith (+) arrBoundValue
->      $ R.szipWith (*) arrBoundMask
->      $ R.smap (/ 4)
->      $ mapStencil2 (BoundConst 0)
->      fivePoint arr
+We modify our solver above to take a stencil and also an *Int* which
+is used to normalise the factors in the stencil. For example, in the
+five point method this is 4.
 
-> solveLaplaceStencil' :: Monad m
+> solveLaplaceStencil :: Monad m
 >                        => Int
 >                        -> Stencil DIM2 Double
 >                        -> Int
@@ -548,7 +550,7 @@ Stencils
 >                        -> Array U DIM2 Double
 >                        -> Array U DIM2 Double
 >                        -> m (Array U DIM2 Double)
-> solveLaplaceStencil' !steps !st !nF !arrBoundMask !arrBoundValue !arrInit
+> solveLaplaceStencil !steps !st !nF !arrBoundMask !arrBoundValue !arrInit
 >  = go steps arrInit
 >  where
 >    go 0 !arr = return arr
@@ -564,27 +566,31 @@ Stencils
 >      $ mapStencil2 (BoundConst 0)
 >      st arr
 
-> testStencil5 :: Int -> IO (Array U DIM2 Double)
-> testStencil5 nIter = do
->   mask    <- boundMask 5 5
->   val     <- boundValue 5 5 bndFnEg1
->   initArr <- initArr5M
->   solveLaplaceStencil' nIter fivePoint 4 mask val initArr
+We can then test both methods.
+
+> testStencil5 :: Int -> Int -> IO (Array U DIM2 Double)
+> testStencil5 gridSize nIter = do
+>   mask    <- boundMask gridSize gridSize
+>   val     <- boundValue gridSize gridSize bndFnEg1
+>   initArr <- mkInitArrM gridSize
+>   solveLaplaceStencil nIter fivePoint 4 mask val initArr
 
     [ghci]
-    testStencil5 178 >>= return . pPrint
+    testStencil5 5 178 >>= return . pPrint
 
-> testStencil9 :: Int -> IO (Array U DIM2 Double)
-> testStencil9 nIter = do
->   mask    <- boundMask 5 5
->   val     <- boundValue 5 5 bndFnEg1
->   initArr <- initArr5M
->   solveLaplaceStencil' nIter ninePoint 20 mask val initArr
+> testStencil9 :: Int -> Int -> IO (Array U DIM2 Double)
+> testStencil9 gridSize nIter = do
+>   mask    <- boundMask gridSize gridSize
+>   val     <- boundValue gridSize gridSize bndFnEg1
+>   initArr <- mkInitArrM gridSize
+>   solveLaplaceStencil nIter ninePoint 20 mask val initArr
 
     [ghci]
-    testStencil9 150 >>= return . pPrint
+    testStencil9 5 150 >>= return . pPrint
 
-Computational stencil as in page 149?
+We note that the methods give different answers. Before explaining
+this, let us examine one more example where the exact solution is
+known.
 
 We take the example from [@iserles2009first Chapter 8] where the
 boundary conditions are:

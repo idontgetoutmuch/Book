@@ -12,6 +12,7 @@
 
 module Diagram (
     example
+  , fivePointStencil
   , main
   ) where
 
@@ -28,9 +29,10 @@ tick :: (Int, Int) -> Diagram B R2
 tick  (n, m) = pointDiagram origin # named (n, m)
 
 gridWithHalves :: Int -> Int -> Diagram B R2
-gridWithHalves n m = mconcat lineXs <>
-           mconcat lineYs <>
-           (intersections # translate (r2 (0.0 - delta2X ,1.0 + delta2Y)))
+gridWithHalves n m =
+  mconcat lineXs <>
+  mconcat lineYs <>
+  (intersections # translate (r2 (0.0 - delta2X ,1.0 + delta2Y)))
 
   where
 
@@ -65,6 +67,28 @@ gridWithHalves n m = mconcat lineXs <>
                     map vcat $
                     map (intersperse (strutY delta2Y)) $
                     chunksOf (2 * m + 1 + 2) [ tick (n, m) | n <- n2s, m <- m2s ]
+
+arrowStyle1 :: Color a => a -> ArrowOpts
+arrowStyle1 c = (with  & arrowHead  .~ noHead
+                       & shaftStyle %~ lw 0.005
+                       & shaftColor .~ c
+                       & arrowTail  .~ noTail)
+
+fivePointStencil :: Diagram B R2
+fivePointStencil = points #
+                   connectStencil "Centre" "West"  (1/2 :: Turn) (0 :: Turn)   #
+                   connectStencil "East" "Centre"  (1/2 :: Turn) (0 :: Turn)   #
+                   connectStencil "Centre" "North" (1/4 :: Turn) (3/4 :: Turn) #
+                   connectStencil "South" "Centre" (1/4 :: Turn) (3/4 :: Turn)
+
+  where points = (bndPt # named "West" # translate (r2 (0.0, 0.5))) <>
+                 (intPt # named "Centre" # translate (r2 (0.5, 0.5))) <>
+                 (bndPt # named "East" # translate (r2 (1.0, 0.5))) <>
+                 (bndPt # named "North" # translate (r2 (0.5, 1.0))) <>
+                 (bndPt # named "South" # translate (r2 (0.5, 0.0)))
+
+        connectStencil n1 n2 o1 o2 =
+          connectPerim' (arrowStyle1 green) n1 n2 o1 o2
 
 cSize :: Double
 cSize = 0.03
@@ -135,4 +159,4 @@ example n m =
   annotate' "u" blue (2 * n - 1) 5
 
 main :: IO ()
-main = mainWith $ example 3 3
+main = mainWith $ fivePointStencil
