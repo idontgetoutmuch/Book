@@ -13,6 +13,7 @@
 module Diagram (
     example
   , fivePointStencil
+  , ninePointStencil
   , main
   ) where
 
@@ -90,6 +91,26 @@ fivePointStencil = points #
         connectStencil n1 n2 o1 o2 =
           connectPerim' (arrowStyle1 green) n1 n2 o1 o2
 
+ninePointStencil :: Diagram B R2
+ninePointStencil = points #
+                   connectStencil "Centre" "West"  (1/2 :: Turn) (0 :: Turn)   #
+                   connectStencil "East" "Centre"  (1/2 :: Turn) (0 :: Turn)   #
+                   connectStencil "Centre" "North" (1/4 :: Turn) (3/4 :: Turn) #
+                   connectStencil "South" "Centre" (1/4 :: Turn) (3/4 :: Turn)
+
+  where points = (bndPt # named "West" # translate (r2 (0.0, 0.5))) <>
+                 (intPt # named "Centre" # translate (r2 (0.5, 0.5))) <>
+                 (bndPt # named "East" # translate (r2 (1.0, 0.5))) <>
+                 (bndPt # named "North" # translate (r2 (0.5, 1.0))) <>
+                 (bndPt # named "South" # translate (r2 (0.5, 0.0))) <>
+                 (bndPt # named "SouthWest" # translate (r2 (0.0, 0.0))) <>
+                 (bndPt # named "NorthWest" # translate (r2 (0.0, 1.0))) <>
+                 (bndPt # named "SouthEast" # translate (r2 (1.0, 0.0))) <>
+                 (bndPt # named "NorthEast" # translate (r2 (1.0, 1.0)))
+
+        connectStencil n1 n2 o1 o2 =
+          connectPerim' (arrowStyle1 green) n1 n2 o1 o2
+
 cSize :: Double
 cSize = 0.03
 
@@ -159,4 +180,6 @@ example n m =
   annotate' "u" blue (2 * n - 1) 5
 
 main :: IO ()
-main = mainWith $ fivePointStencil
+main = mainWith $
+       (fivePointStencil # scaleX 0.4 # scaleY 0.4) <>
+       (ninePointStencil # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.5, 0.0)))

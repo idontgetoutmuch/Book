@@ -9,7 +9,13 @@
 {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
 {-# OPTIONS_GHC -fno-warn-orphans          #-}
 
-module Chap1Aux where
+module Chap1Aux (
+    pPrint
+  , mkJacobiMat
+  , mkJacobiBnd
+  , mkJacobiVars
+  , matrixTex
+  ) where
 
 import Prelude         as P
 import Data.Array.Repa as R
@@ -19,9 +25,6 @@ import PrettyPrint ()
 
 fn1a :: Int -> Doc
 fn1a = int
-
-fn1b :: Int -> Double
-fn1b = fromIntegral
 
 fn2a :: Int -> [(Int, Int)] -> Doc
 fn2a _ = hcat .
@@ -255,16 +258,16 @@ instance (Source t a, Tex a) => Tex (Array t DIM2 a) where
      elems = [ tex (slice a j) | i <- [0..n-1], let j = Any :. i :. All]
      Z :. n :. _m = extent a
 
-matrix' :: Int -> String
-matrix' n =  render $
-            vcat [ text "\n\\begin{bmatrix}"
-                 , tex $ mkJacobiMat n
-                 , text "\\end{bmatrix}"
-                 , text "\\begin{bmatrix}"
-                 , mkJacobiVars n
-                 , text "\\end{bmatrix}"
-                 , text "="
-                 , text "\\begin{bmatrix}"
-                 , vcat $ punctuate (space <> text "\\\\") $ mkJacobiBnd fn1a fn2a n
-                 , text "\\end{bmatrix}\n"
-                 ]
+matrixTex :: Int -> String
+matrixTex n =  render $
+               vcat [ text "\n\\begin{bmatrix}"
+                    , tex $ mkJacobiMat n
+                    , text "\\end{bmatrix}"
+                    , text "\\begin{bmatrix}"
+                    , mkJacobiVars n
+                    , text "\\end{bmatrix}"
+                    , text "="
+                    , text "\\begin{bmatrix}"
+                    , vcat $ punctuate (space <> text "\\\\") $ mkJacobiBnd fn1a fn2a n
+                    , text "\\end{bmatrix}\n"
+                    ]

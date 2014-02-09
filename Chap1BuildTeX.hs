@@ -17,8 +17,8 @@ n = 21
 
 main :: IO ()
 main = do
-  writeFile "matrix5.tex" (matrix' 5)
-  writeFile "matrix3.tex" (matrix' 3)
+  writeFile "matrix5.tex" (matrixTex 5)
+  writeFile "matrix3.tex" (matrixTex 3)
 
   bndMsk <- boundMask n n
   bndVal <- boundValue n n bndFnEg1

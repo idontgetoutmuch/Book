@@ -8,6 +8,13 @@ bibliography: Book.bib
 
 \usepackage{color}
 
+```{.dia height='300'}
+import Diagram
+dia = (fivePointStencil # scaleX 0.4 # scaleY 0.4) <>
+      (ninePointStencil # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.5, 0.0)))
+```
+
+
 Introduction
 ============
 
@@ -23,15 +30,23 @@ more compelling reason for doing so is that it is a moderately simple
 equation, in so far as partial differential equations are simple, that
 has been well studied for centuries.
 
-In Haskell terms this gives us the opportunity to use the repa
-library, compare it against a similar implementation in C and use
+In Haskell terms this gives us the opportunity to use the
+[repa](http://hackage.haskell.org/package/repa) library and use
 [hmatrix](http://hackage.haskell.org/package/hmatrix) which is based
 on [Lapack](http://www.netlib.org/lapack/) (as well as other
-libraries) albeit hmatrix only to illustrate a numerical method which
-we use to solve Laplace's equation.
+libraries) albeit hmatrix only for illustratative purposes.
 
-One way in which using repa stands out from the equivalent C
-implementation is that it gives a language in which we can specify the
+I had originally intended this blog to contain a comparison repa's
+performance against an equivalent C program even though this has
+already been undertaken by the repa team in their various
+publications. And indeed it is still my intention to produce such a
+comparision. However, as I investigated further, it turned out a fair
+amount of comparison work has already been done by a
+[team](http://www.cs.ru.nl/P.Achten/IFL2013/symposium_proceedings_IFL2013/ifl2013_submission_20.pdf) from Intel which suggests there is currently a performance gap but one which is not so large that it outweighs the other benefits of Haskell.
+
+To be more specific, one way in which using repa stands out from the
+equivalent C implementation is that it gives a language in which we
+can specify the
 [stencil](http://en.wikipedia.org/wiki/Stencil_%28numerical_analysis%29)
 being used to solve the equation. As an illustration we substitute the
 [nine
@@ -101,8 +116,9 @@ below.
 bottom, reflecting the fact that we are using an array in the finite
 difference method and rows go down not up.
 
- 5. The corners are grey because in the finite difference method these
-play no part in determining temperatures in the interior of the plate.
+ 5. The corners are grey because in the five point finite difference
+method these play no part in determining temperatures in the interior
+of the plate.
 
 
 Colophon
@@ -149,12 +165,12 @@ repa team for providing the package and the example code.
 Haskell Preamble
 ================
 
-{-# OPTIONS_GHC -Wall                      #-}
-{-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
-{-# OPTIONS_GHC -fno-warn-type-defaults    #-}
-{-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
-{-# OPTIONS_GHC -fno-warn-missing-methods  #-}
-{-# OPTIONS_GHC -fno-warn-orphans          #-}
+> {-# OPTIONS_GHC -Wall                      #-}
+> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
+> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
+> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
+> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
+> {-# OPTIONS_GHC -fno-warn-orphans          #-}
 
 > {-# LANGUAGE BangPatterns                  #-}
 > {-# LANGUAGE TemplateHaskell               #-}
@@ -162,35 +178,27 @@ Haskell Preamble
 > {-# LANGUAGE NoMonomorphismRestriction     #-}
 
 > module Chap1 (
->     test
+>     solveLaplaceStencil
+>   , useBool
+>   , analyticValue
+>   , test
 >   , slnHMat
 >   , test5
 >   , slnHMat5
 >   , boundMask
 >   , boundValue
 >   , bndFnEg1
->   , midPoint
->   , main'
->   , main
 >   ) where
 >
 > import Data.Array.Repa                   as R
 > import Data.Array.Repa.Unsafe            as R
-> import Data.Array.Repa.Algorithms.Matrix
 > import Data.Array.Repa.Stencil           as A
 > import Data.Array.Repa.Stencil.Dim2      as A
 
-> import qualified SolverStencil           as SS
 > import Prelude                           as P
-
-> import Text.Printf
-> import Options.Applicative
 
 > import Data.Packed.Matrix
 > import Numeric.LinearAlgebra.Algorithms
-
-> import Text.PrettyPrint.HughesPJClass ( render, pPrint )
-> import PrettyPrint ()
 
 > import Chap1Aux
 
@@ -276,12 +284,13 @@ has a binding to [LAPACK](http://www.netlib.org/lapack/).
 
 First we create a matrix in *hmatrix* form
 
-> matHMat = do
+> matHMat3 :: IO (Matrix Double)
+> matHMat3 = do
 >   matRepa <- computeP $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
 >   return $ 4 >< 4 $ toList matRepa
 
     [ghci]
-    matHMat
+    matHMat3
 
 Next we create the column vector as presribed by the boundary conditions
 
@@ -302,7 +311,7 @@ Next we create the column vector as presribed by the boundary conditions
     [ghci]
      bndHMat
 
-> slnHMat = matHMat >>= return . flip linearSolve bndHMat
+> slnHMat = matHMat3 >>= return . flip linearSolve bndHMat
 
     [ghci]
     slnHMat
@@ -669,96 +678,13 @@ $$
 >         y = fromIntegral iy / fromIntegral gridSizeY
 >     f _                                 = 0
 
--- | Perform matrix relaxation for the Laplace equation,
---	using a stencil function.
---
---   Computation fn is
---	u'(i,j) = (u(i-1,j) + u(i+1,j) + u(i,j-1) + u(i,j+1)) / 4
---
---  Apply the boundary conditions to this matrix.
---	The mask  matrix has 0 in places where boundary conditions hold
---	and 1 otherwise.
---
---	The value matrix has the boundary condition value in places where it holds,
---	and 0 otherwise.
---
-
-
-> data Options =
->   Options
->   { gridWidth   :: Int
->   , gridHeight  :: Int
->   , _iterations :: Int
->   } deriving Show
-
-> options :: Parser Options
-> options = Options
->   <$> option
->       (    long "width"
->         <> short 'w'
->         <> metavar "INT"
->         <> help "Width of grid"
->       )
->   <*> option
->       (    long "depth"
->         <> short 'd'
->         <> metavar "INT"
->         <> help "Height (or depth) of grid"
->       )
->   <*> option
->       (    long "iterations"
->         <> short 'i'
->         <> metavar "INT"
->         <> help "Number of iterations to perform"
->       )
-
-> gridSize :: Int
-> gridSize = 2
->
-> midPoint :: Int
-> midPoint = gridSize `div` 2
-
-> analyticValue :: Monad m => m (Array U DIM2 Double)
-> analyticValue = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f
+> analyticValue :: Monad m => Int -> m (Array U DIM2 Double)
+> analyticValue gridSize = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f
 >   where
 >     f (Z :. ix :. iy) = y / ((1 + x)^2 + y^2)
 >       where
 >         y = fromIntegral iy / fromIntegral gridSize
 >         x = fromIntegral ix / fromIntegral gridSize
-
-> main' :: Options -> IO ()
-> main' os = do
->   bv <- boundValueAlt (gridWidth os) (gridHeight os)
->   bm <- boundMask  (gridWidth os) (gridHeight os)
->   sl1 <- solveLaplace 1 bm bv bv
->   sl2 <- analyticValue
->   putStrLn $ show $ sl1!(Z :. midPoint :. midPoint)
->   putStrLn $ show $ sl2!(Z :. midPoint :. midPoint)
->   let vss = toList sl1
->   mapM_ (\v -> putStrLn $ printf "%16.10e" v) vss
-
-> main :: IO ()
-> main = execParser opts >>= main'
->   where
->     opts = info (helper <*> options)
->            fullDesc
-
-Comparison C Code
-=================
-
-Main
-----
-
-This is an example of C.
-
- ~~~~ {.c include="Chap1a.c"}
- ~~~~
-
-Matrix
-------
-
- ~~~~ {.c include="libc/Matrix.c"}
- ~~~~
 
 Bibliography
 ============
