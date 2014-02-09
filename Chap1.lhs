@@ -174,20 +174,26 @@ Haskell Preamble
 
 > {-# LANGUAGE BangPatterns                  #-}
 > {-# LANGUAGE TemplateHaskell               #-}
-> {-# LANGUAGE QuasiQuotes #-}
+> {-# LANGUAGE QuasiQuotes                   #-}
 > {-# LANGUAGE NoMonomorphismRestriction     #-}
 
 > module Chap1 (
 >     solveLaplaceStencil
 >   , useBool
->   , analyticValue
->   , test
->   , slnHMat
->   , test5
->   , slnHMat5
 >   , boundMask
 >   , boundValue
 >   , bndFnEg1
+>   , fivePoint
+>   , ninePoint
+>   , testStencil5
+>   , testStencil9
+>   , analyticValue
+>   , slnHMat4
+>   , slnHMat5
+>   , testJacobi4
+>   , testJacobi6
+>   , bndFnEg3
+>   , runSolver
 >   ) where
 >
 > import Data.Array.Repa                   as R
@@ -200,7 +206,11 @@ Haskell Preamble
 > import Data.Packed.Matrix
 > import Numeric.LinearAlgebra.Algorithms
 
+> import Text.PrettyPrint.HughesPJClass ( render )
+
 > import Chap1Aux
+
+> import Control.Applicative
 
 Laplace's Equation: The Five Point Formula
 ==========================================
@@ -219,7 +229,7 @@ $$
 \nabla^2 = \frac{\partial^2}{\partial x^2} +\frac{\partial^2}{\partial y^2}
 $$
 
-We disretize (much more detail from Iserles' book needed here).
+For a sufficiently smooth function (see [@iserles2009first Chapter 8]) we have
 
 $$
 \begin{aligned}
@@ -282,15 +292,18 @@ With our $4 \times 4$ grid we can solve this exactly using the
 [hmatrix](http://hackage.haskell.org/package/hmatrix) package which
 has a binding to [LAPACK](http://www.netlib.org/lapack/).
 
-First we create a matrix in *hmatrix* form
+First we create a $4 \times 4$ matrix in *hmatrix* form
 
-> matHMat3 :: IO (Matrix Double)
-> matHMat3 = do
->   matRepa <- computeP $ mkJacobiMat 3 :: IO (Array U DIM2 Double)
->   return $ 4 >< 4 $ toList matRepa
+> simpleEgN :: Int
+> simpleEgN = 4 - 1
+>
+> matHMat4 :: IO (Matrix Double)
+> matHMat4 = do
+>   matRepa <- computeP $ mkJacobiMat simpleEgN :: IO (Array U DIM2 Double)
+>   return $ (simpleEgN - 1) >< (simpleEgN - 1) $ toList matRepa
 
     [ghci]
-    matHMat3
+    matHMat4
 
 Next we create the column vector as presribed by the boundary conditions
 
@@ -306,21 +319,24 @@ Next we create the column vector as presribed by the boundary conditions
 >          sum .
 >          P.map (bndFnEg1 n n)
 
-> bndHMat = 4 >< 1 $ mkJacobiBnd fromIntegral bnd1 3
+> bndHMat4 :: Matrix Double
+> bndHMat4 = ((simpleEgN - 1) * (simpleEgN - 1)) >< 1 $
+>            mkJacobiBnd fromIntegral bnd1 3
 
     [ghci]
-     bndHMat
+     bndHMat4
 
-> slnHMat = matHMat3 >>= return . flip linearSolve bndHMat
+> slnHMat4 :: IO (Matrix Double)
+> slnHMat4 = matHMat4 >>= return . flip linearSolve bndHMat4
 
     [ghci]
-    slnHMat
+    slnHMat4
 
 The Jacobi Method
------------------
+=================
 
 Inverting a matrix is expensive so instead we use the (possibly most)
-classical of all iterative methos, Jacobi iteration. Given
+classical of all iterative methods, Jacobi iteration. Given
 $A\boldsymbol{x} = \boldsymbol{b}$ and an estimated solution
 $\boldsymbol{x}_i^{[k]}$, we can generate an improved estimate
 $\boldsymbol{x}_i^{[k+1]}$. See [@iserles2009first Chapter 12] for the
@@ -346,7 +362,7 @@ Expanding the matrix equation for a $\color{blue}{\text{point}}$ *not*
 in the $\color{red}{\text{boundary}}$ we get
 
 $$
-x_{i,j}^{[k+1]} = \frac{1}{4}(x_{i-1,j} + x_{i,j-1} + x_{i+1,j} + x_{i,j+1})
+x_{i,j}^{[k+1]} = \frac{1}{4}(x^{[k]}_{i-1,j} + x^{[k]}_{i,j-1} + x^{[k]}_{i+1,j} + x^{[k]}_{i,j+1})
 $$
 
 Cleary the values of the points in the boundary are fixed and must
@@ -372,8 +388,8 @@ not if its value is 0.0.
 >     f (Z :.  ix :. _iy) | ix == gridSizeX = 0
 >     f _                                   = 1
 
-Better would be to use at least a *Bool* as the example below show but
-we wish to modify the code from the [repa git
+Better would be to use at least a *Bool* as the example below shows
+but we wish to modify the code from the [repa git
 repo](https://github.com/DDCSF/repa) as little as possible.
 
 
@@ -457,62 +473,72 @@ point. Note that the function which updates the grid, *relaxLaplace*
 will immediately over-write the points on the boundary with values
 given by the boundary condition.
 
-> initArrM :: IO (Array U DIM2 Double)
-> initArrM = computeP $ fromFunction (Z :. 4 :. 4) (const 0.0)
+> mkInitArrM :: Monad m => Int -> m (Array U DIM2 Double)
+> mkInitArrM n = computeP $ fromFunction (Z :. (n + 1) :. (n + 1)) (const 0.0)
 
 We can now test the Jacobi method
 
-> test :: Int -> IO (Array U DIM2 Double)
-> test nIter = do
->   mask    <- boundMask 3 3
->   val     <- boundValue 3 3 bndFnEg1
->   initArr <- initArrM
+> testJacobi4 :: Int -> IO (Array U DIM2 Double)
+> testJacobi4 nIter = do
+>   mask    <- boundMask simpleEgN simpleEgN
+>   val     <- boundValue simpleEgN simpleEgN bndFnEg1
+>   initArr <- mkInitArrM simpleEgN
 >   solveLaplace nIter mask val initArr
 
 After 55 iterations, we obtain convergence up to the limit of accuracy
-of double precision floating point numbers.
+of double precision floating point numbers. Note this only provides a
+solution of the matrix equation which is an approximation to Laplace's
+equation. To obtain a more accurate result for the latter we need to
+use a smaller grid size.
 
     [ghci]
-    test 55 >>= return . pPrint
+    testJacobi4 55 >>= return . pPrint
 
 A Larger Example
 ----------------
 
+Armed with Jacobi, let us now solve a large example.
+
+> largerEgN, largerEgN2 :: Int
+> largerEgN = 6 - 1
+> largerEgN2 = (largerEgN - 1) * (largerEgN - 1)
+
+First let us use *hmatrix*.
+
+> matHMat5 :: IO (Matrix Double)
 > matHMat5 = do
->   matRepa <- computeP $ mkJacobiMat 5 :: IO (Array U DIM2 Double)
->   return $ 16 >< 16 $ toList matRepa
+>   matRepa <- computeP $ mkJacobiMat largerEgN :: IO (Array U DIM2 Double)
+>   return $ largerEgN2 >< largerEgN2 $ toList matRepa
 
     [ghci]
     matHMat5
 
-> bndHMat5 = 16 >< 1 $ mkJacobiBnd fromIntegral bnd1 5
+> bndHMat5 :: Matrix Double
+> bndHMat5 = largerEgN2>< 1 $ mkJacobiBnd fromIntegral bnd1 5
 
     [ghci]
      bndHMat5
 
+> slnHMat5 :: IO (Matrix Double)
 > slnHMat5 = matHMat5 >>= return . flip linearSolve bndHMat5
 
     [ghci]
     slnHMat5
 
-> initArr5M :: IO (Array U DIM2 Double)
-> initArr5M = computeP $ fromFunction (Z :. 6 :. 6) (const 0.0)
+And for comparison, let us use the Jacobi method.
 
-> mkInitArrM :: Monad m => Int -> m (Array U DIM2 Double)
-> mkInitArrM n = computeP $ fromFunction (Z :. (n + 1) :. (n + 1)) (const 0.0)
->
-> test5 :: Int -> IO (Array U DIM2 Double)
-> test5 nIter = do
->   mask    <- boundMask 5 5
->   val     <- boundValue 5 5 bndFnEg1
->   initArr <- initArr5M
+> testJacobi6 :: Int -> IO (Array U DIM2 Double)
+> testJacobi6 nIter = do
+>   mask    <- boundMask largerEgN largerEgN
+>   val     <- boundValue largerEgN largerEgN bndFnEg1
+>   initArr <- mkInitArrM largerEgN
 >   solveLaplace nIter mask val initArr
 
     [ghci]
-    test5 178 >>= return . pPrint
+    testJacobi6 178 >>= return . pPrint
 
-With a larger grid we need more points (178) before the Jacobi method
-converges.
+Note that with a larger grid we need more points (178) before the
+Jacobi method converges.
 
 Stencils
 ========
@@ -540,7 +566,14 @@ gives full details of stencils in repa.
 
 Using stencils allows us to modify our numerical method with a very
 simple change. For example, suppose we wish to use the nine point
-method then we only need write down the stencil for it
+method (which is $\mathcal{O}((\Delta x)^4)$!) then we only need write
+down the stencil for it which is additionally a linear combination of
+North West, North East, South East and South West.
+
+```{.dia height='300'}
+import Diagram
+dia = ninePointStencil
+```
 
 > ninePoint :: Stencil DIM2 Double
 > ninePoint = [stencil2| 1 4 1
@@ -595,7 +628,7 @@ We can then test both methods.
 >   solveLaplaceStencil nIter ninePoint 20 mask val initArr
 
     [ghci]
-    testStencil9 5 150 >>= return . pPrint
+    testStencil9 5 178 >>= return . pPrint
 
 We note that the methods give different answers. Before explaining
 this, let us examine one more example where the exact solution is
@@ -619,12 +652,18 @@ $$
 u(x, y) = \frac{y}{(1 + x)^2 + y^2}
 $$
 
-> bndFnEg2 :: Int -> Int -> (Int, Int) -> Double
-> bndFnEg2 _ m (0, j) |           j >= 0 && j <  m = 1.0
-> bndFnEg2 n m (i, j) | i == n && j >  0 && j <= m = 2.0
-> bndFnEg2 n _ (i, 0) |           i >  0 && i <= n = 1.0
-> bndFnEg2 n m (i, j) | j == m && i >= 0 && i <  n = 2.0
-> bndFnEg2 _ _ _                                   = 0.0
+And we can calculate the values of this function on a grid.
+
+> analyticValue :: Monad m => Int -> m (Array U DIM2 Double)
+> analyticValue gridSize = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f
+>   where
+>     f (Z :. ix :. iy) = y / ((1 + x)^2 + y^2)
+>       where
+>         y = fromIntegral iy / fromIntegral gridSize
+>         x = fromIntegral ix / fromIntegral gridSize
+
+Let us also solve it using the Jacobi method with a five point stencil
+and a nine point stencil. Here is the encoding of the boundary values.
 
 > bndFnEg3 :: Int -> Int -> (Int, Int) -> Double
 > bndFnEg3 _ m (0, j) |           j >= 0 && j <  m = y / (1 + y^2)
@@ -636,16 +675,9 @@ $$
 >   where x = fromIntegral i / fromIntegral n
 > bndFnEg3 _ _ _                                   = 0.0
 
+We create a function to run a solver.
 
-> exact :: Int -> Int -> IO (Array U DIM2 Double)
-> exact n m = computeP $ fromFunction (Z :. (n + 1) :. (m + 1)) f
->   where
->     f (Z :. i :. j) = y / ((1 + x)^2 + y^2)
->       where
->         x = fromIntegral i / fromIntegral n
->         y = fromIntegral j / fromIntegral m
-
-> reallyTest ::
+> runSolver ::
 >   Monad m =>
 >   Int ->
 >   Int ->
@@ -656,35 +688,49 @@ $$
 >    Array U DIM2 Double ->
 >    m (Array U DIM2 Double)) ->
 >   m (Array U DIM2 Double)
-> reallyTest nGrid nIter boundaryFn solver = do
+> runSolver nGrid nIter boundaryFn solver = do
 >   mask    <- boundMask nGrid nGrid
 >   val     <- boundValue nGrid nGrid boundaryFn
 >   initArr <- mkInitArrM nGrid
 >   solver nIter mask val initArr
 
-> boundValueAlt :: Monad m => Int -> Int -> m (Array U DIM2 Double)
-> boundValueAlt gridSizeX gridSizeY = computeP $
->                                  fromFunction (Z :. gridSizeX + 1 :. gridSizeY + 1) f
->   where
->     f (Z :. _ix :. iy) | iy == 0         = 0
->     f (Z :.  ix :. iy) | iy == gridSizeY = 1 / ((1 + x)^2 + 1)
->       where
->         x = fromIntegral ix / fromIntegral gridSizeX
->     f (Z :.  ix :. iy) | ix == 0         = y / (1 + y^2)
->       where
->         y = fromIntegral iy / fromIntegral gridSizeY
->     f (Z :.  ix :. iy) | ix == gridSizeX = y / (4 + y^2)
->       where
->         y = fromIntegral iy / fromIntegral gridSizeY
->     f _                                 = 0
+> foo = do
+>   exact <- analyticValue 7
+>   jacobi5 <- runSolver 7 200 bndFnEg3 (solveLaplaceStencil 200 fivePoint)
+>   jacobi9 <- runSolver 7 200 bndFnEg3 (solveLaplaceStencil 200 ninePoint)
+>   putStrLn $ render $ pPrint $ R.map abs $ (exact -^ jacobi5)
+>   putStrLn $ render $ pPrint $ R.map abs $ (exact -^ jacobi9)
 
-> analyticValue :: Monad m => Int -> m (Array U DIM2 Double)
-> analyticValue gridSize = computeP $ fromFunction (Z :. gridSize + 1 :. gridSize + 1) f
+> exact :: Int -> Int -> IO (Array U DIM2 Double)
+> exact n m = computeP $ fromFunction (Z :. (n + 1) :. (m + 1)) f
 >   where
->     f (Z :. ix :. iy) = y / ((1 + x)^2 + y^2)
+>     f (Z :. i :. j) = y / ((1 + x)^2 + y^2)
 >       where
->         y = fromIntegral iy / fromIntegral gridSize
->         x = fromIntegral ix / fromIntegral gridSize
+>         x = fromIntegral i / fromIntegral n
+>         y = fromIntegral j / fromIntegral m
+
+> solveLaplaceStencil9 :: Monad m
+>                        => Int
+>                        -> Array U DIM2 Double
+>                        -> Array U DIM2 Double
+>                        -> Array U DIM2 Double
+>                        -> m (Array U DIM2 Double)
+> solveLaplaceStencil9 !steps !arrBoundMask !arrBoundValue !arrInit
+>  = go steps arrInit
+>  where
+>    go 0 !arr = return arr
+>    go n !arr
+>      = do arr' <- relaxLaplace arr
+>           go (n - 1) arr'
+>
+>    relaxLaplace arr
+>      = computeP
+>      $ R.szipWith (+) arrBoundValue
+>      $ R.szipWith (*) arrBoundMask
+>      $ R.smap (/ 20)
+>      $ mapStencil2 (BoundConst 0)
+>      ninePoint arr
+
 
 Bibliography
 ============

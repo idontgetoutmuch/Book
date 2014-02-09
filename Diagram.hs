@@ -91,12 +91,19 @@ fivePointStencil = points #
         connectStencil n1 n2 o1 o2 =
           connectPerim' (arrowStyle1 green) n1 n2 o1 o2
 
+        intPt = circle cSize # fc blue # lw 0
+        bndPt = circle cSize # fc red  # lw 0
+
 ninePointStencil :: Diagram B R2
 ninePointStencil = points #
                    connectStencil "Centre" "West"  (1/2 :: Turn) (0 :: Turn)   #
                    connectStencil "East" "Centre"  (1/2 :: Turn) (0 :: Turn)   #
                    connectStencil "Centre" "North" (1/4 :: Turn) (3/4 :: Turn) #
-                   connectStencil "South" "Centre" (1/4 :: Turn) (3/4 :: Turn)
+                   connectStencil "South" "Centre" (1/4 :: Turn) (3/4 :: Turn) #
+                   connectStencil "SouthWest" "Centre" (1/8 :: Turn) (5/8 :: Turn) #
+                   connectStencil "SouthEast" "Centre" (3/8 :: Turn) (7/8 :: Turn) #
+                   connectStencil "NorthEast" "Centre" (5/8 :: Turn) (1/8 :: Turn) #
+                   connectStencil "NorthWest" "Centre" (7/8 :: Turn) (3/8 :: Turn)
 
   where points = (bndPt # named "West" # translate (r2 (0.0, 0.5))) <>
                  (intPt # named "Centre" # translate (r2 (0.5, 0.5))) <>
@@ -110,6 +117,9 @@ ninePointStencil = points #
 
         connectStencil n1 n2 o1 o2 =
           connectPerim' (arrowStyle1 green) n1 n2 o1 o2
+
+        intPt = circle cSize # fc blue # lw 0
+        bndPt = circle cSize # fc red  # lw 0
 
 cSize :: Double
 cSize = 0.03
