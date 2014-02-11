@@ -1,0 +1,665 @@
+  <script src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<p></p>
+<div style="text-align: center;">
+<p><img src="diagrams/7c370e962c4fbbce.png" /></p>
+</div>
+<h1 id="introduction">Introduction</h1>
+<p>Suppose we have a square thin plate of metal and we hold each of edges at a temperature which may vary along the edge but is fixed for all time. After some period depending on the conductivity of the metal, the temperature at every point on the plate will have stabilised. What is the temperature at any point?</p>
+<p>We can calculate this using by solving Laplace’s equation <span class="math">\(\nabla^2 \phi = 0 \)</span> in 2 dimensions. Apart from the preceeding motivation, a more compelling reason for doing so is that it is a moderately simple equation, in so far as partial differential equations are simple, that has been well studied for centuries.</p>
+<p>In Haskell terms this gives us the opportunity to use the <a href="http://hackage.haskell.org/package/repa">repa</a> library and use <a href="http://hackage.haskell.org/package/hmatrix">hmatrix</a> which is based on <a href="http://www.netlib.org/lapack/">Lapack</a> (as well as other libraries) albeit hmatrix only for illustratative purposes.</p>
+<p>I had originally intended this blog to contain a comparison repa’s performance against an equivalent C program even though this has already been undertaken by the repa team in their various publications. And indeed it is still my intention to produce such a comparision. However, as I investigated further, it turned out a fair amount of comparison work has already been done by a <a href="http://www.cs.ru.nl/P.Achten/IFL2013/symposium_proceedings_IFL2013/ifl2013_submission_20.pdf">team</a> from Intel which suggests there is currently a performance gap but one which is not so large that it outweighs the other benefits of Haskell.</p>
+<p>To be more specific, one way in which using repa stands out from the equivalent C implementation is that it gives a language in which we can specify the <a href="http://en.wikipedia.org/wiki/Stencil_%28numerical_analysis%29">stencil</a> being used to solve the equation. As an illustration we substitute the <a href="http://www.physics.arizona.edu/~restrepo/475B/Notes/sourcehtml/node52.html#fg.nin2">nine point</a> method for the <a href="http://en.wikipedia.org/wiki/Five-point_stencil">five point</a> method merely by changing the stencil.</p>
+<h2 id="a-motivating-example-the-steady-state-heat-equation">A Motivating Example: The Steady State Heat Equation</h2>
+<p><a href="http://en.wikipedia.org/wiki/Thermal_conduction#Fourier.27s_law">Fourier’s law</a> states that the rate of heat transfer or the flux <span class="math">\(\boldsymbol{\sigma}\)</span> is proportional to the negative temperature gradient, as heat flows from hot to cold, and further that it flows in the direction of greatest temperature change. We can write this as</p>
+<p><span class="math">\[
+\boldsymbol{\sigma} = -k\nabla \phi
+\]</span></p>
+<p>where <span class="math">\(\phi : \mathbb{R} \times \mathbb{R} \rightarrow \mathbb{R}\)</span> is the temperature at any given point on the plate and <span class="math">\(k\)</span> is the conductivity of the metal.</p>
+<p>Moreover, we know that for any region on the plate, the total amount of heat flowing in must be balanced by the amount of heat flowing out. We can write this as</p>
+<p><span class="math">\[
+\nabla \cdot \boldsymbol{\sigma} = 0
+\]</span></p>
+<p>Substituting the first equation into the second we obtain Laplace’s equation</p>
+<p><span class="math">\[
+\nabla^2 \phi = 0
+\]</span></p>
+<p>For example, suppose we hold the temperature of the edges of the plate as follows</p>
+<p><span class="math">\[
+\begin{matrix}
+\phi(x, 0) = 1 &amp; \phi(x, 1) = 2 &amp; \phi(0, y) = 1 &amp; \phi(1, y) = 2
+\end{matrix}
+\]</span></p>
+<p>then after some time the temperature of the plate will be as shown in the heatmap below.</p>
+<div style="text-align: center;">
+<p><img src="diagrams/e4b9b0a5c6f543fd.png" /></p>
+</div>
+<p>Notes:</p>
+<ol style="list-style-type: decimal">
+<li><p>Red is hot.</p></li>
+<li><p>Blue is cold.</p></li>
+<li><p>The heatmap is created by the five point finite difference method described below.</p></li>
+<li><p>The <span class="math">\(y\)</span>-axis points down (not up) i.e. <span class="math">\(\phi(x,1)\)</span> is at the bottom, reflecting the fact that we are using an array in the finite difference method and rows go down not up.</p></li>
+<li><p>The corners are grey because in the five point finite difference method these play no part in determining temperatures in the interior of the plate.</p></li>
+</ol>
+<h1 id="colophon">Colophon</h1>
+<p>Since the book I am writing contains C code (for performance comparisons), I need a way of being able to compile and run this code and include it “as is” in the book. Up until now, all my blog posts have contained Haskell and so I have been able to use <a href="http://hackage.haskell.org/package/BlogLiterately-diagrams">BlogLiteratelyD</a> which allows me to include really nice <a href="http://projects.haskell.org/diagrams/gallery.html">diagrams</a>. But clearly this tool wasn’t really designed to handle other languages (although I am sure it could be made to do so).</p>
+<p>Using pandoc’s <a href="http://johnmacfarlane.net/pandoc/scripting.html">scripting</a> capability with the small script provided</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">#!/</span><span style="">usr</span><span style="">/</span><span style="">bin</span><span style="">/</span><span style="">env</span> <span style="">runhaskell</span>
+<span style="color: blue; font-weight: bold;">import</span> <span style="">Text</span><span style="">.</span><span style="">Pandoc</span><span style="">.</span><span style="">JSON</span>
+
+<span style="">doInclude</span> <span style="color: red;">::</span> <span style="">Block</span> <span style="color: red;">-&gt;</span> <span style="">IO</span> <span style="">Block</span>
+<span style="">doInclude</span> <span style="">cb</span><span style="color: red;">@</span><span style="color: red;">(</span><span style="">CodeBlock</span> <span style="color: red;">(</span><span style="color: teal;">"verbatim"</span><span style="color: red;">,</span> <span style="">classes</span><span style="color: red;">,</span> <span style="">namevals</span><span style="color: red;">)</span> <span style="">contents</span><span style="color: red;">)</span> <span style="color: red;">=</span>
+  <span style="color: blue; font-weight: bold;">case</span> <span style="">lookup</span> <span style="color: teal;">"include"</span> <span style="">namevals</span> <span style="color: blue; font-weight: bold;">of</span>
+       <span style="">Just</span> <span style="">f</span>     <span style="color: red;">-&gt;</span> <span style="">return</span> <span style="">.</span> <span style="color: red;">(</span><span style="color: red;">\</span><span style="">x</span> <span style="color: red;">-&gt;</span> <span style="">Para</span> <span style="color: red;">[</span><span style="">Math</span> <span style="">DisplayMath</span> <span style="">x</span><span style="color: red;">]</span><span style="color: red;">)</span> <span style="">=&lt;&lt;</span> <span style="">readFile</span> <span style="">f</span>
+       <span style="">Nothing</span>    <span style="color: red;">-&gt;</span> <span style="">return</span> <span style="">cb</span>
+<span style="">doInclude</span> <span style="">cb</span><span style="color: red;">@</span><span style="color: red;">(</span><span style="">CodeBlock</span> <span style="color: red;">(</span><span style="">id</span><span style="color: red;">,</span> <span style="">classes</span><span style="color: red;">,</span> <span style="">namevals</span><span style="color: red;">)</span> <span style="">contents</span><span style="color: red;">)</span> <span style="color: red;">=</span>
+  <span style="color: blue; font-weight: bold;">case</span> <span style="">lookup</span> <span style="color: teal;">"include"</span> <span style="">namevals</span> <span style="color: blue; font-weight: bold;">of</span>
+       <span style="">Just</span> <span style="">f</span>     <span style="color: red;">-&gt;</span> <span style="">return</span> <span style="">.</span> <span style="color: red;">(</span><span style="">CodeBlock</span> <span style="color: red;">(</span><span style="">id</span><span style="color: red;">,</span> <span style="">classes</span><span style="color: red;">,</span> <span style="">namevals</span><span style="color: red;">)</span><span style="color: red;">)</span> <span style="">=&lt;&lt;</span> <span style="">readFile</span> <span style="">f</span>
+       <span style="">Nothing</span>    <span style="color: red;">-&gt;</span> <span style="">return</span> <span style="">cb</span>
+<span style="">doInclude</span> <span style="">x</span> <span style="color: red;">=</span> <span style="">return</span> <span style="">x</span>
+
+<span style="">main</span> <span style="color: red;">::</span> <span style="">IO</span> <span style="">()</span>
+<span style="">main</span> <span style="color: red;">=</span> <span style="">toJSONFilter</span> <span style="">doInclude</span></code></pre>
+<p>I can then include C code blocks like this</p>
+<pre><code>~~~~ {.c include="Chap1a.c"}
+~~~~</code></pre>
+<p>And format the whole document like this</p>
+<pre><code>pandoc -s Chap1.lhs --filter=./Include -t markdown+lhs > Chap1Expanded.lhs
+BlogLiteratelyD Chap1Expanded.lhs > Chap1.html</code></pre>
+<p>Sadly, the C doesn’t get syntax highlighting but this will do for now.</p>
+<h1 id="acknowledgements">Acknowledgements</h1>
+<p>A lot of the code for this post is taken from the <a href="http://repa.ouroborus.net">repa</a> package itself. Many thanks to the repa team for providing the package and the example code.</p>
+<h1 id="haskell-preamble">Haskell Preamble</h1>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="color: green;">{-# OPTIONS_GHC -Wall                      #-}</span>
+<span style="">&gt;</span> <span style="color: green;">{-# OPTIONS_GHC -fno-warn-name-shadowing   #-}</span>
+<span style="">&gt;</span> <span style="color: green;">{-# OPTIONS_GHC -fno-warn-type-defaults    #-}</span>
+<span style="">&gt;</span> <span style="color: green;">{-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}</span>
+<span style="">&gt;</span> <span style="color: green;">{-# OPTIONS_GHC -fno-warn-missing-methods  #-}</span>
+<span style="">&gt;</span> <span style="color: green;">{-# OPTIONS_GHC -fno-warn-orphans          #-}</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="color: green;">{-# LANGUAGE BangPatterns                  #-}</span>
+<span style="">&gt;</span> <span style="color: green;">{-# LANGUAGE TemplateHaskell               #-}</span>
+<span style="">&gt;</span> <span style="color: green;">{-# LANGUAGE QuasiQuotes                   #-}</span>
+<span style="">&gt;</span> <span style="color: green;">{-# LANGUAGE NoMonomorphismRestriction     #-}</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="color: blue; font-weight: bold;">module</span> <span style="">Chap1</span> <span style="color: red;">(</span>
+<span style="">&gt;</span>     <span style="color: blue; font-weight: bold;">module</span> <span style="">Control</span><span style="">.</span><span style="">Applicative</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">solveLaplaceStencil</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">useBool</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">boundMask</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">boundValue</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">bndFnEg1</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">fivePoint</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">ninePoint</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">testStencil5</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">testStencil9</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">analyticValue</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">slnHMat4</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">slnHMat5</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">testJacobi4</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">testJacobi6</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">bndFnEg3</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">runSolver</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">s5</span>
+<span style="">&gt;</span>   <span style="color: red;">,</span> <span style="">s9</span>
+<span style="">&gt;</span>   <span style="color: red;">)</span> <span style="color: blue; font-weight: bold;">where</span>
+<span style="">&gt;</span>
+<span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Data</span><span style="">.</span><span style="">Array</span><span style="">.</span><span style="">Repa</span>                   <span style="color: blue; font-weight: bold;">as</span> <span style="">R</span>
+<span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Data</span><span style="">.</span><span style="">Array</span><span style="">.</span><span style="">Repa</span><span style="">.</span><span style="">Unsafe</span>            <span style="color: blue; font-weight: bold;">as</span> <span style="">R</span>
+<span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Data</span><span style="">.</span><span style="">Array</span><span style="">.</span><span style="">Repa</span><span style="">.</span><span style="">Stencil</span>           <span style="color: blue; font-weight: bold;">as</span> <span style="">A</span>
+<span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Data</span><span style="">.</span><span style="">Array</span><span style="">.</span><span style="">Repa</span><span style="">.</span><span style="">Stencil</span><span style="">.</span><span style="">Dim2</span>      <span style="color: blue; font-weight: bold;">as</span> <span style="">A</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Prelude</span>                           <span style="color: blue; font-weight: bold;">as</span> <span style="">P</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Data</span><span style="">.</span><span style="">Packed</span><span style="">.</span><span style="">Matrix</span>
+<span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Numeric</span><span style="">.</span><span style="">LinearAlgebra</span><span style="">.</span><span style="">Algorithms</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Chap1Aux</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="color: blue; font-weight: bold;">import</span> <span style="">Control</span><span style="">.</span><span style="">Applicative</span>
+</code></pre>
+<h1 id="laplaces-equation-the-five-point-formula">Laplace’s Equation: The Five Point Formula</h1>
+<p>We show how to apply finite difference methods to <a href="Laplace">Laplace’s</a> equation:</p>
+<p><span class="math">\[
+\nabla^2 u = 0
+\]</span></p>
+<p>where</p>
+<p><span class="math">\[
+\nabla^2 = \frac{\partial^2}{\partial x^2} +\frac{\partial^2}{\partial y^2}
+\]</span></p>
+<p>For a sufficiently smooth function (see <span class="citation">(Iserles 2009, chap. 8)</span>) we have</p>
+<p><span class="math">\[
+\begin{aligned}
+\frac{\partial^2 u}{\partial x^2}\mathop{\Bigg|_{x = x_0 + k\Delta x}}_{y = y_0 + l\Delta x} &amp;= \frac{1}{(\Delta x)^2}\Delta_{0,x}^2 u_{k,l} + \mathcal{O}((\Delta x)^2) \\
+\frac{\partial^2 u}{\partial y^2}\mathop{\Bigg|_{x = x_0 + k\Delta x}}_{y = y_0 + l\Delta x} &amp;= \frac{1}{(\Delta x)^2}\Delta_{0,y}^2 u_{k,l} + \mathcal{O}((\Delta x)^2)
+\end{aligned}
+\]</span></p>
+<p>where the central difference operator <span class="math">\(\Delta_0\)</span> is defined as</p>
+<p><span class="math">\[
+(\Delta_0 z)_k \triangleq z_{k + \frac{1}{2}} - z_{k - \frac{1}{2}}
+\]</span></p>
+<p>We are therefore led to consider the <em>five point</em> difference scheme.</p>
+<p><span class="math">\[
+\frac{1}{(\Delta x)^2}(\Delta_{0,x}^2 + \Delta_{0,y}^2) u_{k,l} = 0
+\]</span></p>
+<p>We can re-write this explicitly as</p>
+<p><span class="math">\[
+u_{k-1,l} + u_{k+1,l} + u_{k,l-1} + u_{k,l+1} - 4u_{k,l} = 0
+\]</span></p>
+<p>Specifically for the grid point (2,1) in a <span class="math">\(4 \times 4\)</span> grid we have</p>
+<p><span class="math">\[
+{\color{blue}{u_{1,1}}} + {\color{red}{u_{3,1}}} + {\color{red}{u_{2,0}}} + {\color{blue}{u_{2,2}}} - 4{\color{blue}{u_{2,1}}} = 0
+\]</span></p>
+<p>where blue indicates that the point is an interior point and red indicates that the point is a boundary point. For Dirichlet boundary conditions (which is all we consider in this post), the values at the boundary points are known.</p>
+<div style="text-align: center;">
+<p><img src="diagrams/c881f869ce44b847.png" /></p>
+</div>
+<p>We can write the entire set of equations for this grid as</p>
+<p><span class="math">\[
+\begin{bmatrix}
+-4.0 &amp; 1.0 &amp; 1.0 &amp; 0.0 \\
+1.0 &amp; -4.0 &amp; 0.0 &amp; 1.0 \\
+1.0 &amp; 0.0 &amp; -4.0 &amp; 1.0 \\
+0.0 &amp; 1.0 &amp; 1.0 &amp; -4.0
+\end{bmatrix}
+\begin{bmatrix}
+{\color{blue}{u_{11}}} \\
+{\color{blue}{u_{21}}} \\
+{\color{blue}{u_{12}}} \\
+{\color{blue}{u_{22}}}
+\end{bmatrix}
+=
+\begin{bmatrix}
+-{\color{red}{u_{10}}} + -{\color{red}{u_{01}}} \\
+-{\color{red}{u_{20}}} + -{\color{red}{u_{31}}} \\
+-{\color{red}{u_{02}}} + -{\color{red}{u_{13}}} \\
+-{\color{red}{u_{23}}} + -{\color{red}{u_{32}}}
+\end{bmatrix}
+\]</span></p>
+<h2 id="a-very-simple-example">A Very Simple Example</h2>
+<p>Let us take the boundary conditions to be</p>
+<p><span class="math">\[
+\begin{matrix}
+u(x, 0) = 1 &amp; u(x, 1) = 2 &amp; u(0, y) = 1 &amp; u(1, y) = 2
+\end{matrix}
+\]</span></p>
+<p>With our <span class="math">\(4 \times 4\)</span> grid we can solve this exactly using the <a href="http://hackage.haskell.org/package/hmatrix">hmatrix</a> package which has a binding to <a href="http://www.netlib.org/lapack/">LAPACK</a>.</p>
+<p>First we create a <span class="math">\(4 \times 4\)</span> matrix in <em>hmatrix</em> form</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">simpleEgN</span><span style="color: red;">,</span> <span style="">simpleEgN2</span> <span style="color: red;">::</span> <span style="">Int</span>
+<span style="">&gt;</span> <span style="">simpleEgN</span> <span style="color: red;">=</span> <span class="hs-num">4</span> <span style="color: green;">-</span> <span class="hs-num">1</span>
+<span style="">&gt;</span> <span style="">simpleEgN2</span> <span style="color: red;">=</span> <span style="color: red;">(</span><span style="">simpleEgN</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">*</span> <span style="color: red;">(</span><span style="">simpleEgN</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">matHMat4</span> <span style="color: red;">::</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Matrix</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">matHMat4</span> <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span>
+<span style="">&gt;</span>   <span style="">matRepa</span> <span style="color: red;">&lt;-</span> <span style="">computeP</span> <span style="">$</span> <span style="">mkJacobiMat</span> <span style="">simpleEgN</span> <span style="color: red;">::</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span>   <span style="">return</span> <span style="">$</span> <span style="">simpleEgN2</span> <span style="">&gt;&lt;</span> <span style="">simpleEgN2</span> <span style="">$</span> <span style="">toList</span> <span style="">matRepa</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span>matHMat4
+  (4&gt;&lt;4)
+   [ -4.0,  1.0,  1.0,  0.0
+   ,  1.0, -4.0,  0.0,  1.0
+   ,  1.0,  0.0, -4.0,  1.0
+   ,  0.0,  1.0,  1.0, -4.0 ]
+</code></pre>
+<p>Next we create the column vector as presribed by the boundary conditions</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">bndFnEg1</span> <span style="color: red;">::</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="color: red;">(</span><span style="">Int</span><span style="color: red;">,</span> <span style="">Int</span><span style="color: red;">)</span> <span style="color: red;">-&gt;</span> <span style="">Double</span>
+<span style="">&gt;</span> <span style="">bndFnEg1</span> <span style="color: blue; font-weight: bold;">_</span> <span style="">m</span> <span style="color: red;">(</span><span class="hs-num">0</span><span style="color: red;">,</span> <span style="">j</span><span style="color: red;">)</span> <span style="color: red;">|</span>           <span style="">j</span> <span style="">&gt;</span> <span class="hs-num">0</span> <span style="">&amp;&amp;</span> <span style="">j</span> <span style="">&lt;</span> <span style="">m</span> <span style="color: red;">=</span> <span class="hs-num">1.0</span>
+<span style="">&gt;</span> <span style="">bndFnEg1</span> <span style="">n</span> <span style="">m</span> <span style="color: red;">(</span><span style="">i</span><span style="color: red;">,</span> <span style="">j</span><span style="color: red;">)</span> <span style="color: red;">|</span> <span style="">i</span> <span style="">==</span> <span style="">n</span> <span style="">&amp;&amp;</span> <span style="">j</span> <span style="">&gt;</span> <span class="hs-num">0</span> <span style="">&amp;&amp;</span> <span style="">j</span> <span style="">&lt;</span> <span style="">m</span> <span style="color: red;">=</span> <span class="hs-num">2.0</span>
+<span style="">&gt;</span> <span style="">bndFnEg1</span> <span style="">n</span> <span style="color: blue; font-weight: bold;">_</span> <span style="color: red;">(</span><span style="">i</span><span style="color: red;">,</span> <span class="hs-num">0</span><span style="color: red;">)</span> <span style="color: red;">|</span>           <span style="">i</span> <span style="">&gt;</span> <span class="hs-num">0</span> <span style="">&amp;&amp;</span> <span style="">i</span> <span style="">&lt;</span> <span style="">n</span> <span style="color: red;">=</span> <span class="hs-num">1.0</span>
+<span style="">&gt;</span> <span style="">bndFnEg1</span> <span style="">n</span> <span style="">m</span> <span style="color: red;">(</span><span style="">i</span><span style="color: red;">,</span> <span style="">j</span><span style="color: red;">)</span> <span style="color: red;">|</span> <span style="">j</span> <span style="">==</span> <span style="">m</span> <span style="">&amp;&amp;</span> <span style="">i</span> <span style="">&gt;</span> <span class="hs-num">0</span> <span style="">&amp;&amp;</span> <span style="">i</span> <span style="">&lt;</span> <span style="">n</span> <span style="color: red;">=</span> <span class="hs-num">2.0</span>
+<span style="">&gt;</span> <span style="">bndFnEg1</span> <span style="color: blue; font-weight: bold;">_</span> <span style="color: blue; font-weight: bold;">_</span> <span style="color: blue; font-weight: bold;">_</span>                                 <span style="color: red;">=</span> <span class="hs-num">0.0</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">bnd1</span> <span style="color: red;">::</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="color: red;">[</span><span style="color: red;">(</span><span style="">Int</span><span style="color: red;">,</span> <span style="">Int</span><span style="color: red;">)</span><span style="color: red;">]</span> <span style="color: red;">-&gt;</span> <span style="">Double</span>
+<span style="">&gt;</span> <span style="">bnd1</span> <span style="">n</span> <span style="color: red;">=</span> <span style="">negate</span> <span style="">.</span>
+<span style="">&gt;</span>          <span style="">sum</span> <span style="">.</span>
+<span style="">&gt;</span>          <span style="">P</span><span style="">.</span><span style="">map</span> <span style="color: red;">(</span><span style="">bndFnEg1</span> <span style="">n</span> <span style="">n</span><span style="color: red;">)</span>
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">bndHMat4</span> <span style="color: red;">::</span> <span style="">Matrix</span> <span style="">Double</span>
+<span style="">&gt;</span> <span style="">bndHMat4</span> <span style="color: red;">=</span> <span style="color: red;">(</span><span style="color: red;">(</span><span style="">simpleEgN</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">*</span> <span style="color: red;">(</span><span style="">simpleEgN</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span><span style="color: red;">)</span> <span style="">&gt;&lt;</span> <span class="hs-num">1</span> <span style="">$</span>
+<span style="">&gt;</span>            <span style="">mkJacobiBnd</span> <span style="">fromIntegral</span> <span style="">bnd1</span> <span class="hs-num">3</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span> bndHMat4
+  (4&gt;&lt;1)
+   [ -2.0
+   , -3.0
+   , -3.0
+   , -4.0 ]
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">slnHMat4</span> <span style="color: red;">::</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Matrix</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">slnHMat4</span> <span style="color: red;">=</span> <span style="">matHMat4</span> <span style="">&gt;&gt;=</span> <span style="">return</span> <span style="">.</span> <span style="">flip</span> <span style="">linearSolve</span> <span style="">bndHMat4</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span>slnHMat4
+  (4&gt;&lt;1)
+   [               1.25
+   ,                1.5
+   , 1.4999999999999998
+   , 1.7499999999999998 ]
+</code></pre>
+<h1 id="the-jacobi-method">The Jacobi Method</h1>
+<p>Inverting a matrix is expensive so instead we use the (possibly most) classical of all iterative methods, Jacobi iteration. Given <span class="math">\(A\boldsymbol{x} = \boldsymbol{b}\)</span> and an estimated solution <span class="math">\(\boldsymbol{x}_i^{[k]}\)</span>, we can generate an improved estimate <span class="math">\(\boldsymbol{x}_i^{[k+1]}\)</span>. See <span class="citation">(Iserles 2009, chap. 12)</span> for the details on convergence and convergence rates.</p>
+<p><span class="math">\[
+\boldsymbol{x}_i^{[k+1]} = \frac{1}{A_{i,i}}\Bigg[\boldsymbol{b}_i - \sum_{j \neq i} A_{i,j}\boldsymbol{x}_j^{[k]}\Bigg]
+\]</span></p>
+<p>The simple example above does not really give a clear picture of what happens in general during the update of the estimate. Here is a larger example</p>
+<div style="text-align: center;">
+<p><img src="http://idontgetoutmuch.files.wordpress.com/2014/02/864db6f106356df7.png" /></p>
+</div>
+<p><span class="math">\[
+\begin{bmatrix}
+-4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+1.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 1.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 1.0 &amp; 0.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0 &amp; 1.0 \\
+0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; 0.0 &amp; 0.0 &amp; 1.0 &amp; -4.0
+\end{bmatrix}
+\begin{bmatrix}
+{\color{blue}{u_{11}}} \\
+{\color{blue}{u_{21}}} \\
+{\color{blue}{u_{31}}} \\
+{\color{blue}{u_{41}}} \\
+{\color{blue}{u_{12}}} \\
+{\color{blue}{u_{22}}} \\
+{\color{blue}{u_{32}}} \\
+{\color{blue}{u_{42}}} \\
+{\color{blue}{u_{13}}} \\
+{\color{blue}{u_{23}}} \\
+{\color{blue}{u_{33}}} \\
+{\color{blue}{u_{43}}} \\
+{\color{blue}{u_{14}}} \\
+{\color{blue}{u_{24}}} \\
+{\color{blue}{u_{34}}} \\
+{\color{blue}{u_{44}}}
+\end{bmatrix}
+=
+\begin{bmatrix}
+-{\color{red}{u_{10}}} + -{\color{red}{u_{01}}} \\
+-{\color{red}{u_{20}}} \\
+-{\color{red}{u_{30}}} \\
+-{\color{red}{u_{40}}} + -{\color{red}{u_{51}}} \\
+-{\color{red}{u_{02}}} \\
+0 \\
+0 \\
+-{\color{red}{u_{52}}} \\
+-{\color{red}{u_{03}}} \\
+0 \\
+0 \\
+-{\color{red}{u_{53}}} \\
+-{\color{red}{u_{04}}} + -{\color{red}{u_{15}}} \\
+-{\color{red}{u_{25}}} \\
+-{\color{red}{u_{35}}} \\
+-{\color{red}{u_{45}}} + -{\color{red}{u_{54}}}
+\end{bmatrix}
+\]</span></p>
+<p>Expanding the matrix equation for a <span class="math">\(\color{blue}{\text{point}}\)</span> <em>not</em> in the <span class="math">\(\color{red}{\text{boundary}}\)</span> we get</p>
+<p><span class="math">\[
+x_{i,j}^{[k+1]} = \frac{1}{4}(x^{[k]}_{i-1,j} + x^{[k]}_{i,j-1} + x^{[k]}_{i+1,j} + x^{[k]}_{i,j+1})
+\]</span></p>
+<p>Cleary the values of the points in the boundary are fixed and must remain at those values for every iteration.</p>
+<p>Here is the method using <em>repa</em>. To produce an improved estimate, we define a function <em>relaxLaplace</em> and we pass in a <em>repa</em> matrix representing our original estimate <span class="math">\(\boldsymbol{x}_i^{[k]}\)</span> and receive the one step update <span class="math">\(\boldsymbol{x}_i^{[k+1]}\)</span> also as a <em>repa</em> matrix.</p>
+<p>We pass in a boundary condition mask which specifies which points are boundary points; a point is a boundary point if its value is 1.0 and not if its value is 0.0.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">boundMask</span> <span style="color: red;">::</span> <span style="">Monad</span> <span style="">m</span> <span style="color: red;">=&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">boundMask</span> <span style="">gridSizeX</span> <span style="">gridSizeY</span> <span style="color: red;">=</span> <span style="">computeP</span> <span style="">$</span>
+<span style="">&gt;</span>                                 <span style="">fromFunction</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span style="">gridSizeX</span> <span style="">+</span> <span class="hs-num">1</span> <span style="">:.</span> <span style="">gridSizeY</span> <span style="">+</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">f</span>
+<span style="">&gt;</span>   <span style="color: blue; font-weight: bold;">where</span>
+<span style="">&gt;</span>     <span style="">f</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span class="hs-sel">_ix</span> <span style="">:.</span>  <span style="">iy</span><span style="color: red;">)</span> <span style="color: red;">|</span> <span style="">iy</span> <span style="">==</span> <span class="hs-num">0</span>         <span style="color: red;">=</span> <span class="hs-num">0</span>
+<span style="">&gt;</span>     <span style="">f</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span class="hs-sel">_ix</span> <span style="">:.</span>  <span style="">iy</span><span style="color: red;">)</span> <span style="color: red;">|</span> <span style="">iy</span> <span style="">==</span> <span style="">gridSizeY</span> <span style="color: red;">=</span> <span class="hs-num">0</span>
+<span style="">&gt;</span>     <span style="">f</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span>  <span style="">ix</span> <span style="">:.</span> <span class="hs-sel">_iy</span><span style="color: red;">)</span> <span style="color: red;">|</span> <span style="">ix</span> <span style="">==</span> <span class="hs-num">0</span>         <span style="color: red;">=</span> <span class="hs-num">0</span>
+<span style="">&gt;</span>     <span style="">f</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span>  <span style="">ix</span> <span style="">:.</span> <span class="hs-sel">_iy</span><span style="color: red;">)</span> <span style="color: red;">|</span> <span style="">ix</span> <span style="">==</span> <span style="">gridSizeX</span> <span style="color: red;">=</span> <span class="hs-num">0</span>
+<span style="">&gt;</span>     <span style="">f</span> <span style="color: blue; font-weight: bold;">_</span>                                   <span style="color: red;">=</span> <span class="hs-num">1</span>
+</code></pre>
+<p>Better would be to use at least a <em>Bool</em> as the example below shows but we wish to modify the code from the <a href="https://github.com/DDCSF/repa">repa git repo</a> as little as possible.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">useBool</span> <span style="color: red;">::</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM1</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">useBool</span> <span style="color: red;">=</span> <span style="">computeP</span> <span style="">$</span>
+<span style="">&gt;</span>           <span style="">R</span><span style="">.</span><span style="">map</span> <span style="color: red;">(</span><span style="">fromIntegral</span> <span style="">.</span> <span style="">fromEnum</span><span style="color: red;">)</span> <span style="">$</span>
+<span style="">&gt;</span>           <span style="">fromFunction</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span style="color: red;">(</span><span class="hs-num">3</span> <span style="color: red;">::</span> <span style="">Int</span><span style="color: red;">)</span><span style="color: red;">)</span> <span style="color: red;">(</span><span style="">const</span> <span style="">True</span><span style="color: red;">)</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span>useBool
+  AUnboxed (Z :. 3) (fromList [1.0,1.0,1.0])
+</code></pre>
+<p>We further pass in the boundary conditions. We construct these by using a function which takes the grid size in the <span class="math">\(x\)</span> direction, the grid size in the <span class="math">\(y\)</span> direction and a given pair of co-ordinates in the grid and returns a value at this position.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">boundValue</span> <span style="color: red;">::</span> <span style="">Monad</span> <span style="">m</span> <span style="color: red;">=&gt;</span>
+<span style="">&gt;</span>               <span style="">Int</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>               <span style="">Int</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>               <span style="color: red;">(</span><span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="color: red;">(</span><span style="">Int</span><span style="color: red;">,</span> <span style="">Int</span><span style="color: red;">)</span> <span style="color: red;">-&gt;</span> <span style="">Double</span><span style="color: red;">)</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>               <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">boundValue</span> <span style="">gridSizeX</span> <span style="">gridSizeY</span> <span style="">bndFn</span> <span style="color: red;">=</span>
+<span style="">&gt;</span>   <span style="">computeP</span> <span style="">$</span>
+<span style="">&gt;</span>   <span style="">fromFunction</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span style="">gridSizeX</span> <span style="">+</span> <span class="hs-num">1</span> <span style="">:.</span> <span style="">gridSizeY</span> <span style="">+</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">g</span>
+<span style="">&gt;</span>   <span style="color: blue; font-weight: bold;">where</span>
+<span style="">&gt;</span>     <span style="">g</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span style="">ix</span> <span style="">:.</span> <span style="">iy</span><span style="color: red;">)</span> <span style="color: red;">=</span> <span style="">bndFn</span> <span style="">gridSizeX</span> <span style="">gridSizeY</span> <span style="color: red;">(</span><span style="">ix</span><span style="color: red;">,</span> <span style="">iy</span><span style="color: red;">)</span>
+</code></pre>
+<p>Note that we only update an element in the <em>repa</em> matrix representation of the vector if it is <strong>not</strong> on the boundary.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">relaxLaplace</span>
+<span style="">&gt;</span>   <span style="color: red;">::</span> <span style="">Monad</span> <span style="">m</span>
+<span style="">&gt;</span>      <span style="color: red;">=&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>      <span style="color: red;">-&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>      <span style="color: red;">-&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>      <span style="color: red;">-&gt;</span> <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span>
+<span style="">&gt;</span> <span style="">relaxLaplace</span> <span style="">arrBoundMask</span> <span style="">arrBoundValue</span> <span style="">arr</span>
+<span style="">&gt;</span>   <span style="color: red;">=</span> <span style="">computeP</span>
+<span style="">&gt;</span>     <span style="">$</span> <span style="">R</span><span style="">.</span><span style="">zipWith</span> <span style="color: red;">(</span><span style="">+</span><span style="color: red;">)</span> <span style="">arrBoundValue</span>
+<span style="">&gt;</span>     <span style="">$</span> <span style="">R</span><span style="">.</span><span style="">zipWith</span> <span style="color: red;">(</span><span style="">*</span><span style="color: red;">)</span> <span style="">arrBoundMask</span>
+<span style="">&gt;</span>     <span style="">$</span> <span style="">unsafeTraverse</span> <span style="">arr</span> <span style="">id</span> <span style="">elemFn</span>
+<span style="">&gt;</span>   <span style="color: blue; font-weight: bold;">where</span>
+<span style="">&gt;</span>     <span style="color: blue; font-weight: bold;">_</span> <span style="">:.</span> <span style="">height</span> <span style="">:.</span> <span style="">width</span>
+<span style="">&gt;</span>       <span style="color: red;">=</span> <span style="">extent</span> <span style="">arr</span>
+<span style="">&gt;</span>
+<span style="">&gt;</span>     <span style="">elemFn</span> <span style="">!</span><span style="">get</span> <span style="">!</span><span style="">d</span><span style="color: red;">@</span><span style="color: red;">(</span><span style="">sh</span> <span style="">:.</span> <span style="">i</span> <span style="">:.</span> <span style="">j</span><span style="color: red;">)</span>
+<span style="">&gt;</span>       <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">if</span> <span style="">isBorder</span> <span style="">i</span> <span style="">j</span>
+<span style="">&gt;</span>         <span style="color: blue; font-weight: bold;">then</span>  <span style="">get</span> <span style="">d</span>
+<span style="">&gt;</span>         <span style="color: blue; font-weight: bold;">else</span> <span style="color: red;">(</span><span style="">get</span> <span style="color: red;">(</span><span style="">sh</span> <span style="">:.</span> <span style="color: red;">(</span><span style="">i</span><span style="color: green;">-</span><span class="hs-num">1</span><span style="color: red;">)</span> <span style="">:.</span> <span style="">j</span><span style="color: red;">)</span>
+<span style="">&gt;</span>               <span style="">+</span>   <span style="">get</span> <span style="color: red;">(</span><span style="">sh</span> <span style="">:.</span> <span style="">i</span>     <span style="">:.</span> <span style="color: red;">(</span><span style="">j</span><span style="color: green;">-</span><span class="hs-num">1</span><span style="color: red;">)</span><span style="color: red;">)</span>
+<span style="">&gt;</span>               <span style="">+</span>   <span style="">get</span> <span style="color: red;">(</span><span style="">sh</span> <span style="">:.</span> <span style="color: red;">(</span><span style="">i</span><span style="">+</span><span class="hs-num">1</span><span style="color: red;">)</span> <span style="">:.</span> <span style="">j</span><span style="color: red;">)</span>
+<span style="">&gt;</span>               <span style="">+</span>   <span style="">get</span> <span style="color: red;">(</span><span style="">sh</span> <span style="">:.</span> <span style="">i</span>     <span style="">:.</span> <span style="color: red;">(</span><span style="">j</span><span style="">+</span><span class="hs-num">1</span><span style="color: red;">)</span><span style="color: red;">)</span><span style="color: red;">)</span> <span style="">/</span> <span class="hs-num">4</span>
+<span style="">&gt;</span>     <span style="">isBorder</span> <span style="">!</span><span style="">i</span> <span style="">!</span><span style="">j</span>
+<span style="">&gt;</span>       <span style="color: red;">=</span>  <span style="color: red;">(</span><span style="">i</span> <span style="">==</span> <span class="hs-num">0</span><span style="color: red;">)</span> <span style="">||</span> <span style="color: red;">(</span><span style="">i</span> <span style="">&gt;=</span> <span style="">width</span>  <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span>
+<span style="">&gt;</span>          <span style="">||</span> <span style="color: red;">(</span><span style="">j</span> <span style="">==</span> <span class="hs-num">0</span><span style="color: red;">)</span> <span style="">||</span> <span style="color: red;">(</span><span style="">j</span> <span style="">&gt;=</span> <span style="">height</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span>
+</code></pre>
+<p>We can use this to iterate as many times as we like.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">solveLaplace</span>
+<span style="">&gt;</span>   <span style="color: red;">::</span> <span style="">Monad</span> <span style="">m</span>
+<span style="">&gt;</span>         <span style="color: red;">=&gt;</span> <span style="">Int</span>
+<span style="">&gt;</span>         <span style="color: red;">-&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>         <span style="color: red;">-&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>         <span style="color: red;">-&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>         <span style="color: red;">-&gt;</span> <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span>
+<span style="">&gt;</span> <span style="">solveLaplace</span> <span style="">steps</span> <span style="">arrBoundMask</span> <span style="">arrBoundValue</span> <span style="">arrInit</span>
+<span style="">&gt;</span>  <span style="color: red;">=</span> <span style="">go</span> <span style="">steps</span> <span style="">arrInit</span>
+<span style="">&gt;</span>   <span style="color: blue; font-weight: bold;">where</span>
+<span style="">&gt;</span>     <span style="">go</span> <span style="">!</span><span style="">i</span> <span style="">!</span><span style="">arr</span>
+<span style="">&gt;</span>       <span style="color: red;">|</span> <span style="">i</span> <span style="">==</span> <span class="hs-num">0</span>
+<span style="">&gt;</span>       <span style="color: red;">=</span> <span style="">return</span>     <span style="">arr</span>
+<span style="">&gt;</span>
+<span style="">&gt;</span>       <span style="color: red;">|</span> <span style="">otherwise</span>
+<span style="">&gt;</span>       <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span> <span style="">arr'</span> <span style="color: red;">&lt;-</span> <span style="">relaxLaplace</span> <span style="">arrBoundMask</span> <span style="">arrBoundValue</span> <span style="">arr</span>
+<span style="">&gt;</span>            <span style="">go</span> <span style="color: red;">(</span><span style="">i</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">arr'</span>
+</code></pre>
+<p>For our small example, we set the initial array to <span class="math">\(0\)</span> at every point. Note that the function which updates the grid, <em>relaxLaplace</em> will immediately over-write the points on the boundary with values given by the boundary condition.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">mkInitArrM</span> <span style="color: red;">::</span> <span style="">Monad</span> <span style="">m</span> <span style="color: red;">=&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">mkInitArrM</span> <span style="">n</span> <span style="color: red;">=</span> <span style="">computeP</span> <span style="">$</span> <span style="">fromFunction</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span style="color: red;">(</span><span style="">n</span> <span style="">+</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">:.</span> <span style="color: red;">(</span><span style="">n</span> <span style="">+</span> <span class="hs-num">1</span><span style="color: red;">)</span><span style="color: red;">)</span> <span style="color: red;">(</span><span style="">const</span> <span class="hs-num">0.0</span><span style="color: red;">)</span>
+</code></pre>
+<p>We can now test the Jacobi method</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">testJacobi4</span> <span style="color: red;">::</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">testJacobi4</span> <span style="">nIter</span> <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span>
+<span style="">&gt;</span>   <span style="">mask</span>    <span style="color: red;">&lt;-</span> <span style="">boundMask</span> <span style="">simpleEgN</span> <span style="">simpleEgN</span>
+<span style="">&gt;</span>   <span style="">val</span>     <span style="color: red;">&lt;-</span> <span style="">boundValue</span> <span style="">simpleEgN</span> <span style="">simpleEgN</span> <span style="">bndFnEg1</span>
+<span style="">&gt;</span>   <span style="">initArr</span> <span style="color: red;">&lt;-</span> <span style="">mkInitArrM</span> <span style="">simpleEgN</span>
+<span style="">&gt;</span>   <span style="">solveLaplace</span> <span style="">nIter</span> <span style="">mask</span> <span style="">val</span> <span style="">initArr</span>
+</code></pre>
+<p>After 55 iterations, we obtain convergence up to the limit of accuracy of double precision floating point numbers. Note this only provides a solution of the matrix equation which is an approximation to Laplace’s equation. To obtain a more accurate result for the latter we need to use a smaller grid size.</p>
+<pre><code><span style="color: gray;">ghci&gt; </span>testJacobi4 55 &gt;&gt;= return . pPrint
+  [0.0, 1.0, 1.0, 0.0]
+  [1.0, 1.25, 1.5, 2.0]
+  [1.0, 1.5, 1.75, 2.0]
+  [0.0, 2.0, 2.0, 0.0]
+</code></pre>
+<h2 id="a-larger-example">A Larger Example</h2>
+<p>Armed with Jacobi, let us now solve a large example.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">largerEgN</span><span style="color: red;">,</span> <span style="">largerEgN2</span> <span style="color: red;">::</span> <span style="">Int</span>
+<span style="">&gt;</span> <span style="">largerEgN</span> <span style="color: red;">=</span> <span class="hs-num">6</span> <span style="color: green;">-</span> <span class="hs-num">1</span>
+<span style="">&gt;</span> <span style="">largerEgN2</span> <span style="color: red;">=</span> <span style="color: red;">(</span><span style="">largerEgN</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">*</span> <span style="color: red;">(</span><span style="">largerEgN</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span>
+</code></pre>
+<p>First let us use <em>hmatrix</em>.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">matHMat5</span> <span style="color: red;">::</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Matrix</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">matHMat5</span> <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span>
+<span style="">&gt;</span>   <span style="">matRepa</span> <span style="color: red;">&lt;-</span> <span style="">computeP</span> <span style="">$</span> <span style="">mkJacobiMat</span> <span style="">largerEgN</span> <span style="color: red;">::</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span>   <span style="">return</span> <span style="">$</span> <span style="">largerEgN2</span> <span style="">&gt;&lt;</span> <span style="">largerEgN2</span> <span style="">$</span> <span style="">toList</span> <span style="">matRepa</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span>matHMat5
+  (16&gt;&lt;16)
+   [ -4.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0
+   ,  1.0, -4.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0
+   ,  0.0,  1.0, -4.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0
+   ,  0.0,  0.0,  1.0, -4.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0
+   ,  1.0,  0.0,  0.0,  0.0, -4.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0
+   ,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0
+   ,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0
+   ,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0
+   ,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0, -4.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0
+   ,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0
+   ,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0,  1.0,  0.0,  0.0,  1.0,  0.0
+   ,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0,  0.0,  0.0,  0.0,  1.0
+   ,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0, -4.0,  1.0,  0.0,  0.0
+   ,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0,  1.0,  0.0
+   ,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0,  1.0
+   ,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0, -4.0 ]
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">bndHMat5</span> <span style="color: red;">::</span> <span style="">Matrix</span> <span style="">Double</span>
+<span style="">&gt;</span> <span style="">bndHMat5</span> <span style="color: red;">=</span> <span style="">largerEgN2</span><span style="">&gt;&lt;</span> <span class="hs-num">1</span> <span style="">$</span> <span style="">mkJacobiBnd</span> <span style="">fromIntegral</span> <span style="">bnd1</span> <span class="hs-num">5</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span> bndHMat5
+  (16&gt;&lt;1)
+   [ -2.0
+   , -1.0
+   , -1.0
+   , -3.0
+   , -1.0
+   ,  0.0
+   ,  0.0
+   , -2.0
+   , -1.0
+   ,  0.0
+   ,  0.0
+   , -2.0
+   , -3.0
+   , -2.0
+   , -2.0
+   , -4.0 ]
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">slnHMat5</span> <span style="color: red;">::</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Matrix</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">slnHMat5</span> <span style="color: red;">=</span> <span style="">matHMat5</span> <span style="">&gt;&gt;=</span> <span style="">return</span> <span style="">.</span> <span style="">flip</span> <span style="">linearSolve</span> <span style="">bndHMat5</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span>slnHMat5
+  (16&gt;&lt;1)
+   [ 1.0909090909090908
+   , 1.1818181818181817
+   , 1.2954545454545454
+   ,                1.5
+   , 1.1818181818181817
+   , 1.3409090909090906
+   , 1.4999999999999996
+   , 1.7045454545454544
+   , 1.2954545454545459
+   ,                1.5
+   , 1.6590909090909092
+   ,  1.818181818181818
+   , 1.5000000000000004
+   , 1.7045454545454548
+   , 1.8181818181818186
+   , 1.9090909090909092 ]
+</code></pre>
+<p>And for comparison, let us use the Jacobi method.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">testJacobi6</span> <span style="color: red;">::</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">testJacobi6</span> <span style="">nIter</span> <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span>
+<span style="">&gt;</span>   <span style="">mask</span>    <span style="color: red;">&lt;-</span> <span style="">boundMask</span> <span style="">largerEgN</span> <span style="">largerEgN</span>
+<span style="">&gt;</span>   <span style="">val</span>     <span style="color: red;">&lt;-</span> <span style="">boundValue</span> <span style="">largerEgN</span> <span style="">largerEgN</span> <span style="">bndFnEg1</span>
+<span style="">&gt;</span>   <span style="">initArr</span> <span style="color: red;">&lt;-</span> <span style="">mkInitArrM</span> <span style="">largerEgN</span>
+<span style="">&gt;</span>   <span style="">solveLaplace</span> <span style="">nIter</span> <span style="">mask</span> <span style="">val</span> <span style="">initArr</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span>testJacobi6 178 &gt;&gt;= return . pPrint
+  [0.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+  [1.0, 1.0909090909090908, 1.1818181818181817, 1.2954545454545454, 1.5, 2.0]
+  [1.0, 1.1818181818181817, 1.3409090909090908, 1.5, 1.7045454545454546, 2.0]
+  [1.0, 1.2954545454545454, 1.5, 1.6590909090909092, 1.8181818181818183, 2.0]
+  [1.0, 1.5, 1.7045454545454546, 1.8181818181818181, 1.9090909090909092, 2.0]
+  [0.0, 2.0, 2.0, 2.0, 2.0, 0.0]
+</code></pre>
+<p>Note that with a larger grid we need more points (178) before the Jacobi method converges.</p>
+<h1 id="stencils">Stencils</h1>
+<p>Since we are functional programmers, our natural inclination is to see if we can find an abstraction for (at least some) numerical methods. We notice that we are updating each grid element (except the boundary elements) by taking the North, East, South and West surrounding squares and calculating a linear combination of these.</p>
+<div style="text-align: center;">
+<p><img src="diagrams/735e5328e7a59275.png" /></p>
+</div>
+<p>Repa provides this abstraction and we can describe the update calculation as a <a href="http://en.wikipedia.org/wiki/Stencil_%28numerical_analysis%29">stencil</a>. <span class="citation">(Lippmeier and Keller 2011)</span> gives full details of stencils in repa.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">fivePoint</span> <span style="color: red;">::</span> <span style="">Stencil</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span> <span style="">fivePoint</span> <span style="color: red;">=</span> <span style="color: red;">[</span><span style="">stencil2</span><span style="color: red;">|</span>  <span class="hs-num">0</span> <span class="hs-num">1</span> <span class="hs-num">0</span>
+<span style="">&gt;</span>                         <span class="hs-num">1</span> <span class="hs-num">0</span> <span class="hs-num">1</span>
+<span style="">&gt;</span>                         <span class="hs-num">0</span> <span class="hs-num">1</span> <span class="hs-num">0</span> <span style="color: red;">|</span><span style="color: red;">]</span>
+</code></pre>
+<p>Using stencils allows us to modify our numerical method with a very simple change. For example, suppose we wish to use the nine point method (which is <span class="math">\(\mathcal{O}((\Delta x)^4)\)</span>!) then we only need write down the stencil for it which is additionally a linear combination of North West, North East, South East and South West.</p>
+<div style="text-align: center;">
+<p><img src="diagrams/0556414adae742a5.png" /></p>
+</div>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">ninePoint</span> <span style="color: red;">::</span> <span style="">Stencil</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span> <span style="">ninePoint</span> <span style="color: red;">=</span> <span style="color: red;">[</span><span style="">stencil2</span><span style="color: red;">|</span> <span class="hs-num">1</span> <span class="hs-num">4</span> <span class="hs-num">1</span>
+<span style="">&gt;</span>                        <span class="hs-num">4</span> <span class="hs-num">0</span> <span class="hs-num">4</span>
+<span style="">&gt;</span>                        <span class="hs-num">1</span> <span class="hs-num">4</span> <span class="hs-num">1</span> <span style="color: red;">|</span><span style="color: red;">]</span>
+</code></pre>
+<p>We modify our solver above to take a stencil and also an <em>Int</em> which is used to normalise the factors in the stencil. For example, in the five point method this is 4.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">solveLaplaceStencil</span> <span style="color: red;">::</span> <span style="">Monad</span> <span style="">m</span>
+<span style="">&gt;</span>                        <span style="color: red;">=&gt;</span> <span style="">Int</span>
+<span style="">&gt;</span>                        <span style="color: red;">-&gt;</span> <span style="">Stencil</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>                        <span style="color: red;">-&gt;</span> <span style="">Int</span>
+<span style="">&gt;</span>                        <span style="color: red;">-&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>                        <span style="color: red;">-&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>                        <span style="color: red;">-&gt;</span> <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span>
+<span style="">&gt;</span>                        <span style="color: red;">-&gt;</span> <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">solveLaplaceStencil</span> <span style="">!</span><span style="">steps</span> <span style="">!</span><span style="">st</span> <span style="">!</span><span style="">nF</span> <span style="">!</span><span style="">arrBoundMask</span> <span style="">!</span><span style="">arrBoundValue</span> <span style="">!</span><span style="">arrInit</span>
+<span style="">&gt;</span>  <span style="color: red;">=</span> <span style="">go</span> <span style="">steps</span> <span style="">arrInit</span>
+<span style="">&gt;</span>  <span style="color: blue; font-weight: bold;">where</span>
+<span style="">&gt;</span>    <span style="">go</span> <span class="hs-num">0</span> <span style="">!</span><span style="">arr</span> <span style="color: red;">=</span> <span style="">return</span> <span style="">arr</span>
+<span style="">&gt;</span>    <span style="">go</span> <span style="">n</span> <span style="">!</span><span style="">arr</span>
+<span style="">&gt;</span>      <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span> <span style="">arr'</span> <span style="color: red;">&lt;-</span> <span style="">relaxLaplace</span> <span style="">arr</span>
+<span style="">&gt;</span>           <span style="">go</span> <span style="color: red;">(</span><span style="">n</span> <span style="color: green;">-</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">arr'</span>
+<span style="">&gt;</span>
+<span style="">&gt;</span>    <span style="">relaxLaplace</span> <span style="">arr</span>
+<span style="">&gt;</span>      <span style="color: red;">=</span> <span style="">computeP</span>
+<span style="">&gt;</span>      <span style="">$</span> <span style="">R</span><span style="">.</span><span style="">szipWith</span> <span style="color: red;">(</span><span style="">+</span><span style="color: red;">)</span> <span style="">arrBoundValue</span>
+<span style="">&gt;</span>      <span style="">$</span> <span style="">R</span><span style="">.</span><span style="">szipWith</span> <span style="color: red;">(</span><span style="">*</span><span style="color: red;">)</span> <span style="">arrBoundMask</span>
+<span style="">&gt;</span>      <span style="">$</span> <span style="">R</span><span style="">.</span><span style="">smap</span> <span style="color: red;">(</span><span style="">/</span> <span style="color: red;">(</span><span style="">fromIntegral</span> <span style="">nF</span><span style="color: red;">)</span><span style="color: red;">)</span>
+<span style="">&gt;</span>      <span style="">$</span> <span style="">mapStencil2</span> <span style="color: red;">(</span><span style="">BoundConst</span> <span class="hs-num">0</span><span style="color: red;">)</span>
+<span style="">&gt;</span>      <span style="">st</span> <span style="">arr</span>
+</code></pre>
+<p>We can then test both methods.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">testStencil5</span> <span style="color: red;">::</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">testStencil5</span> <span style="">gridSize</span> <span style="">nIter</span> <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span>
+<span style="">&gt;</span>   <span style="">mask</span>    <span style="color: red;">&lt;-</span> <span style="">boundMask</span> <span style="">gridSize</span> <span style="">gridSize</span>
+<span style="">&gt;</span>   <span style="">val</span>     <span style="color: red;">&lt;-</span> <span style="">boundValue</span> <span style="">gridSize</span> <span style="">gridSize</span> <span style="">bndFnEg1</span>
+<span style="">&gt;</span>   <span style="">initArr</span> <span style="color: red;">&lt;-</span> <span style="">mkInitArrM</span> <span style="">gridSize</span>
+<span style="">&gt;</span>   <span style="">solveLaplaceStencil</span> <span style="">nIter</span> <span style="">fivePoint</span> <span class="hs-num">4</span> <span style="">mask</span> <span style="">val</span> <span style="">initArr</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span>testStencil5 5 178 &gt;&gt;= return . pPrint
+  [0.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+  [1.0, 1.0909090909090908, 1.1818181818181817, 1.2954545454545454, 1.5, 2.0]
+  [1.0, 1.1818181818181817, 1.3409090909090908, 1.5, 1.7045454545454546, 2.0]
+  [1.0, 1.2954545454545454, 1.5, 1.6590909090909092, 1.8181818181818183, 2.0]
+  [1.0, 1.5, 1.7045454545454546, 1.8181818181818181, 1.9090909090909092, 2.0]
+  [0.0, 2.0, 2.0, 2.0, 2.0, 0.0]
+</code></pre>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">testStencil9</span> <span style="color: red;">::</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">IO</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">testStencil9</span> <span style="">gridSize</span> <span style="">nIter</span> <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span>
+<span style="">&gt;</span>   <span style="">mask</span>    <span style="color: red;">&lt;-</span> <span style="">boundMask</span> <span style="">gridSize</span> <span style="">gridSize</span>
+<span style="">&gt;</span>   <span style="">val</span>     <span style="color: red;">&lt;-</span> <span style="">boundValue</span> <span style="">gridSize</span> <span style="">gridSize</span> <span style="">bndFnEg1</span>
+<span style="">&gt;</span>   <span style="">initArr</span> <span style="color: red;">&lt;-</span> <span style="">mkInitArrM</span> <span style="">gridSize</span>
+<span style="">&gt;</span>   <span style="">solveLaplaceStencil</span> <span style="">nIter</span> <span style="">ninePoint</span> <span class="hs-num">20</span> <span style="">mask</span> <span style="">val</span> <span style="">initArr</span>
+</code></pre>
+<pre><code><span style="color: gray;">ghci&gt; </span>testStencil9 5 178 &gt;&gt;= return . pPrint
+  [0.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+  [1.0, 1.0222650172207302, 1.1436086139049304, 1.2495750646811328, 1.4069077172153264, 2.0]
+  [1.0, 1.1436086139049304, 1.2964314331751594, 1.4554776038855908, 1.6710941204241017, 2.0]
+  [1.0, 1.2495750646811328, 1.455477603885591, 1.614523774596022, 1.777060571200304, 2.0]
+  [1.0, 1.4069077172153264, 1.671094120424102, 1.777060571200304, 1.7915504172099226, 2.0]
+  [0.0, 2.0, 2.0, 2.0, 2.0, 0.0]
+</code></pre>
+<p>We note that the methods give different answers. Before explaining this, let us examine one more example where the exact solution is known.</p>
+<p>We take the example from <span class="citation">(Iserles 2009, chap. 8)</span> where the boundary conditions are:</p>
+<p><span class="math">\[
+\begin{aligned}
+\phi(x, 0) &amp;= 0 \\
+\phi(x, 1) &amp;= \frac{1}{(1 + x)^2 + 1} \\
+\phi(0, y) &amp;= \frac{y}{1 + y^2} \\
+\phi(1, y) &amp;= \frac{y}{4 + y^2}
+\end{aligned}
+\]</span></p>
+<p>This has the exact solution</p>
+<p><span class="math">\[
+u(x, y) = \frac{y}{(1 + x)^2 + y^2}
+\]</span></p>
+<p>And we can calculate the values of this function on a grid.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">analyticValue</span> <span style="color: red;">::</span> <span style="">Monad</span> <span style="">m</span> <span style="color: red;">=&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">analyticValue</span> <span style="">gridSize</span> <span style="color: red;">=</span> <span style="">computeP</span> <span style="">$</span> <span style="">fromFunction</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span style="">gridSize</span> <span style="">+</span> <span class="hs-num">1</span> <span style="">:.</span> <span style="">gridSize</span> <span style="">+</span> <span class="hs-num">1</span><span style="color: red;">)</span> <span style="">f</span>
+<span style="">&gt;</span>   <span style="color: blue; font-weight: bold;">where</span>
+<span style="">&gt;</span>     <span style="">f</span> <span style="color: red;">(</span><span style="">Z</span> <span style="">:.</span> <span style="">ix</span> <span style="">:.</span> <span style="">iy</span><span style="color: red;">)</span> <span style="color: red;">=</span> <span style="">y</span> <span style="">/</span> <span style="color: red;">(</span><span style="color: red;">(</span><span class="hs-num">1</span> <span style="">+</span> <span style="">x</span><span style="color: red;">)</span><span style="">^</span><span class="hs-num">2</span> <span style="">+</span> <span style="">y</span><span style="">^</span><span class="hs-num">2</span><span style="color: red;">)</span>
+<span style="">&gt;</span>       <span style="color: blue; font-weight: bold;">where</span>
+<span style="">&gt;</span>         <span style="">y</span> <span style="color: red;">=</span> <span style="">fromIntegral</span> <span style="">iy</span> <span style="">/</span> <span style="">fromIntegral</span> <span style="">gridSize</span>
+<span style="">&gt;</span>         <span style="">x</span> <span style="color: red;">=</span> <span style="">fromIntegral</span> <span style="">ix</span> <span style="">/</span> <span style="">fromIntegral</span> <span style="">gridSize</span>
+</code></pre>
+<p>Let us also solve it using the Jacobi method with a five point stencil and a nine point stencil. Here is the encoding of the boundary values.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">bndFnEg3</span> <span style="color: red;">::</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="color: red;">(</span><span style="">Int</span><span style="color: red;">,</span> <span style="">Int</span><span style="color: red;">)</span> <span style="color: red;">-&gt;</span> <span style="">Double</span>
+<span style="">&gt;</span> <span style="">bndFnEg3</span> <span style="color: blue; font-weight: bold;">_</span> <span style="">m</span> <span style="color: red;">(</span><span class="hs-num">0</span><span style="color: red;">,</span> <span style="">j</span><span style="color: red;">)</span> <span style="color: red;">|</span>           <span style="">j</span> <span style="">&gt;=</span> <span class="hs-num">0</span> <span style="">&amp;&amp;</span> <span style="">j</span> <span style="">&lt;</span>  <span style="">m</span> <span style="color: red;">=</span> <span style="">y</span> <span style="">/</span> <span style="color: red;">(</span><span class="hs-num">1</span> <span style="">+</span> <span style="">y</span><span style="">^</span><span class="hs-num">2</span><span style="color: red;">)</span>
+<span style="">&gt;</span>   <span style="color: blue; font-weight: bold;">where</span> <span style="">y</span> <span style="color: red;">=</span> <span style="color: red;">(</span><span style="">fromIntegral</span> <span style="">j</span><span style="color: red;">)</span> <span style="">/</span> <span style="color: red;">(</span><span style="">fromIntegral</span> <span style="">m</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">bndFnEg3</span> <span style="">n</span> <span style="">m</span> <span style="color: red;">(</span><span style="">i</span><span style="color: red;">,</span> <span style="">j</span><span style="color: red;">)</span> <span style="color: red;">|</span> <span style="">i</span> <span style="">==</span> <span style="">n</span> <span style="">&amp;&amp;</span> <span style="">j</span> <span style="">&gt;</span>  <span class="hs-num">0</span> <span style="">&amp;&amp;</span> <span style="">j</span> <span style="">&lt;=</span> <span style="">m</span> <span style="color: red;">=</span> <span style="">y</span> <span style="">/</span> <span style="color: red;">(</span><span class="hs-num">4</span> <span style="">+</span> <span style="">y</span><span style="">^</span><span class="hs-num">2</span><span style="color: red;">)</span>
+<span style="">&gt;</span>   <span style="color: blue; font-weight: bold;">where</span> <span style="">y</span> <span style="color: red;">=</span> <span style="">fromIntegral</span> <span style="">j</span> <span style="">/</span> <span style="">fromIntegral</span> <span style="">m</span>
+<span style="">&gt;</span> <span style="">bndFnEg3</span> <span style="">n</span> <span style="color: blue; font-weight: bold;">_</span> <span style="color: red;">(</span><span style="">i</span><span style="color: red;">,</span> <span class="hs-num">0</span><span style="color: red;">)</span> <span style="color: red;">|</span>           <span style="">i</span> <span style="">&gt;</span>  <span class="hs-num">0</span> <span style="">&amp;&amp;</span> <span style="">i</span> <span style="">&lt;=</span> <span style="">n</span> <span style="color: red;">=</span> <span class="hs-num">0.0</span>
+<span style="">&gt;</span> <span style="">bndFnEg3</span> <span style="">n</span> <span style="">m</span> <span style="color: red;">(</span><span style="">i</span><span style="color: red;">,</span> <span style="">j</span><span style="color: red;">)</span> <span style="color: red;">|</span> <span style="">j</span> <span style="">==</span> <span style="">m</span> <span style="">&amp;&amp;</span> <span style="">i</span> <span style="">&gt;=</span> <span class="hs-num">0</span> <span style="">&amp;&amp;</span> <span style="">i</span> <span style="">&lt;</span>  <span style="">n</span> <span style="color: red;">=</span> <span class="hs-num">1</span> <span style="">/</span> <span style="color: red;">(</span><span style="color: red;">(</span><span class="hs-num">1</span> <span style="">+</span> <span style="">x</span><span style="color: red;">)</span><span style="">^</span><span class="hs-num">2</span> <span style="">+</span> <span class="hs-num">1</span><span style="color: red;">)</span>
+<span style="">&gt;</span>   <span style="color: blue; font-weight: bold;">where</span> <span style="">x</span> <span style="color: red;">=</span> <span style="">fromIntegral</span> <span style="">i</span> <span style="">/</span> <span style="">fromIntegral</span> <span style="">n</span>
+<span style="">&gt;</span> <span style="">bndFnEg3</span> <span style="color: blue; font-weight: bold;">_</span> <span style="color: blue; font-weight: bold;">_</span> <span style="color: blue; font-weight: bold;">_</span>                                   <span style="color: red;">=</span> <span class="hs-num">0.0</span>
+</code></pre>
+<p>We create a function to run a solver.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">runSolver</span> <span style="color: red;">::</span>
+<span style="">&gt;</span>   <span style="">Monad</span> <span style="">m</span> <span style="color: red;">=&gt;</span>
+<span style="">&gt;</span>   <span style="">Int</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>   <span style="">Int</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>   <span style="color: red;">(</span><span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="">Int</span> <span style="color: red;">-&gt;</span> <span style="color: red;">(</span><span style="">Int</span><span style="color: red;">,</span> <span style="">Int</span><span style="color: red;">)</span> <span style="color: red;">-&gt;</span> <span style="">Double</span><span style="color: red;">)</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>   <span style="color: red;">(</span><span style="">Int</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>    <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>    <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>    <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>    <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span><span style="color: red;">)</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>   <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">runSolver</span> <span style="">nGrid</span> <span style="">nIter</span> <span style="">boundaryFn</span> <span style="">solver</span> <span style="color: red;">=</span> <span style="color: blue; font-weight: bold;">do</span>
+<span style="">&gt;</span>   <span style="">mask</span>    <span style="color: red;">&lt;-</span> <span style="">boundMask</span> <span style="">nGrid</span> <span style="">nGrid</span>
+<span style="">&gt;</span>   <span style="">val</span>     <span style="color: red;">&lt;-</span> <span style="">boundValue</span> <span style="">nGrid</span> <span style="">nGrid</span> <span style="">boundaryFn</span>
+<span style="">&gt;</span>   <span style="">initArr</span> <span style="color: red;">&lt;-</span> <span style="">mkInitArrM</span> <span style="">nGrid</span>
+<span style="">&gt;</span>   <span style="">solver</span> <span style="">nIter</span> <span style="">mask</span> <span style="">val</span> <span style="">initArr</span>
+</code></pre>
+<p>And put the five point and nine point solvers in the appropriate form.</p>
+<pre class="sourceCode haskell"><code class="sourceCode haskell"><span style="">&gt;</span> <span style="">s5</span><span style="color: red;">,</span> <span style="">s9</span> <span style="color: red;">::</span> <span style="">Monad</span> <span style="">m</span> <span style="color: red;">=&gt;</span>
+<span style="">&gt;</span>           <span style="">Int</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>           <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>           <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>           <span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span> <span style="color: red;">-&gt;</span>
+<span style="">&gt;</span>           <span style="">m</span> <span style="color: red;">(</span><span style="">Array</span> <span style="">U</span> <span style="">DIM2</span> <span style="">Double</span><span style="color: red;">)</span>
+<span style="">&gt;</span> <span style="">s5</span> <span style="">n</span> <span style="color: red;">=</span> <span style="">solveLaplaceStencil</span> <span style="">n</span> <span style="">fivePoint</span> <span class="hs-num">4</span>
+<span style="">&gt;</span> <span style="">s9</span> <span style="">n</span> <span style="color: red;">=</span> <span style="">solveLaplaceStencil</span> <span style="">n</span> <span style="">ninePoint</span> <span class="hs-num">20</span>
+</code></pre>
+<p>And now we can see that the errors between the analytic solution and the five point method with a grid size of 8 are <span class="math">\(\cal{O}(10^{-4})\)</span>.</p>
+<pre><code><span style="color: gray;">ghci&gt; </span>liftA2 (-^) (analyticValue 7) (runSolver 7 200 bndFnEg3 s5) &gt;&gt;= return . pPrint
+  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  [0.0, -3.659746856576884e-4, -5.792613003869074e-4, -5.919333582729558e-4, -4.617020226472812e-4, -2.7983716661839075e-4, -1.1394184484148084e-4, 0.0]
+  [0.0, -4.0566163490589335e-4, -6.681826442424543e-4, -7.270498771604073e-4, -6.163531890425178e-4, -4.157604876017795e-4, -1.9717865146007263e-4, 0.0]
+  [0.0, -3.4678314565880775e-4, -5.873627029994999e-4, -6.676042377350699e-4, -5.987527967581119e-4, -4.318102416048242e-4, -2.2116263241278578e-4, 0.0]
+  [0.0, -2.635436147627873e-4, -4.55055831294085e-4, -5.329636937312088e-4, -4.965786933938399e-4, -3.7401874422060555e-4, -2.0043638973538114e-4, 0.0]
+  [0.0, -1.7773949138776696e-4, -3.1086347862371855e-4, -3.714478154303591e-4, -3.5502855035249303e-4, -2.7528200465845587e-4, -1.5207424182367424e-4, 0.0]
+  [0.0, -9.188482657347674e-5, -1.6196970595228066e-4, -1.9595925291693295e-4, -1.903987061394885e-4, -1.5064155667735002e-4, -8.533752030373543e-5, 0.0]
+  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+</code></pre>
+<p>But using the nine point method significantly improves this.</p>
+<pre><code><span style="color: gray;">ghci&gt; </span>liftA2 (-^) (analyticValue 7) (runSolver 7 200 bndFnEg3 s9) &gt;&gt;= return . pPrint
+  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  [0.0, -2.7700522166329566e-7, -2.536751151638317e-7, -5.5431452705700934e-8, 7.393573120406671e-8, 8.403487600228132e-8, 4.188249685954659e-8, 0.0]
+  [0.0, -2.0141002235463112e-7, -2.214645128950643e-7, -9.753369634157849e-8, 2.1887763435035623e-8, 6.305346988977334e-8, 4.3482495659663556e-8, 0.0]
+  [0.0, -1.207601019737048e-7, -1.502713803391842e-7, -9.16850228516175e-8, -1.4654435886995998e-8, 2.732932558036083e-8, 2.6830928867571657e-8, 0.0]
+  [0.0, -6.883445567013036e-8, -9.337114890983766e-8, -6.911451747027009e-8, -2.6104150896433254e-8, 4.667329939200826e-9, 1.1717137371469732e-8, 0.0]
+  [0.0, -3.737430460254432e-8, -5.374955715231611e-8, -4.483740087546373e-8, -2.299792309368165e-8, -4.122571728437663e-9, 3.330287268177301e-9, 0.0]
+  [0.0, -1.6802381437586167e-8, -2.5009212159532446e-8, -2.229028683853329e-8, -1.3101905282919546e-8, -4.1197137368165215e-9, 3.909041701444238e-10, 0.0]
+  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+</code></pre>
+<div class="references">
+<h1>Bibliography</h1>
+<p>Iserles, A. 2009. <em>A First Course in the Numerical Analysis of Differential Equations</em>. A First Course in the Numerical Analysis of Differential Equations. Cambridge University Press. <a href="http://books.google.co.uk/books?id=M0tkw4oUucoC">http://books.google.co.uk/books?id=M0tkw4oUucoC</a>.</p>
+<p>Lippmeier, Ben, and Gabriele Keller. 2011. “Efficient Parallel Stencil Convolution in Haskell.” In <em>Proceedings of the 4th ACM Symposium on Haskell</em>, 59–70. Haskell ’11. New York, NY, USA: ACM. doi:<a href="http://dx.doi.org/10.1145/2034675.2034684">10.1145/2034675.2034684</a>. <a href="http://doi.acm.org/10.1145/2034675.2034684">http://doi.acm.org/10.1145/2034675.2034684</a>.</p>
+</div>
