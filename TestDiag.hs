@@ -11,7 +11,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans          #-}
 
 module TestDiag (
-  displayGrid
+  valuedGrid
   ) where
 
 import Data.Array.Repa hiding ( map, (++) )
@@ -20,7 +20,6 @@ import Data.List.Split ( chunksOf )
 import Text.Printf ( printf )
 
 import Diagrams.Prelude hiding ( render )
-import Diagrams.Backend.CmdLine
 import Diagrams.Backend.Cairo.CmdLine ( B ) -- FIXME: It seems we should
                                             -- be able to use a type
                                             -- variable rather than
@@ -28,7 +27,6 @@ import Diagrams.Backend.Cairo.CmdLine ( B ) -- FIXME: It seems we should
 
 -- FIXME: Disgusting - we assume that 0.0 means something special. We
 -- should use Maybe.
--- FIXME: c is not used.
 gridSq :: Double -> Double -> (Double, (Int, Int)) -> Diagram B R2
 gridSq minX maxX (x, n) = text (printf "%2.2f" x) # scale 0.2 # fc white
                                <> square 1 # lw 0 # fc (getColour x) # named n
@@ -37,9 +35,6 @@ gridSq minX maxX (x, n) = text (printf "%2.2f" x) # scale 0.2 # fc white
 
     getColour x | x == 0.0 = grey
     getColour x            = blend ((x - minX) / (maxX - minX)) red blue
-
--- FIXME: remove gridNum - it has no use here - it might be possible
--- to make the labels polymorphic
 
 grid :: Int -> [Double] -> Diagram B R2
 grid n vs = if aLen == sLen
@@ -53,12 +48,6 @@ grid n vs = if aLen == sLen
              map hcat $
              map (map (gridSq 1.0 2.0)) $
              chunksOf n (zip vs [(i, j) | i <- [1..n], j <- [1..n]])
-
-displayGrid :: Int -> Array U DIM2 Double -> FilePath -> IO ()
-displayGrid n ts fn =
-  mainRender ( DiagramOpts (Just 900) (Just 600) fn
-             , DiagramLoopOpts False Nothing 0)
-             (valuedGrid n ts)
 
 valuedGrid :: Int -> Array U DIM2 Double -> Diagram B R2
 valuedGrid n ts =

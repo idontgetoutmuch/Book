@@ -1,4 +1,4 @@
-% Laplace's Equation: Haskell and C
+% Laplace's Equation in Haskell: Using a DSL for Stencils
 % Dominic Steinitz
 % 15th January 2014
 
@@ -8,12 +8,9 @@ bibliography: Book.bib
 
 \usepackage{color}
 
-```{.dia height='300'}
-import Diagram
-dia = (fivePointStencil # scaleX 0.4 # scaleY 0.4) <>
-      (ninePointStencil # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.5, 0.0)))
+```{.dia width='600'}
+dia = image "diagrams/header.png" 1.5 1.0
 ```
-
 
 Introduction
 ============
@@ -109,8 +106,8 @@ Notes:
 
  2. Blue is cold.
 
- 3. The heatmap is created by a finite difference method described
-below.
+ 3. The heatmap is created by the five point finite difference method
+described below.
 
  4. The $y$-axis points down (not up) i.e. $\phi(x,1)$ is at the
 bottom, reflecting the fact that we are using an array in the finite
@@ -178,7 +175,8 @@ Haskell Preamble
 > {-# LANGUAGE NoMonomorphismRestriction     #-}
 
 > module Chap1 (
->     solveLaplaceStencil
+>     module Control.Applicative
+>   , solveLaplaceStencil
 >   , useBool
 >   , boundMask
 >   , boundValue
@@ -194,6 +192,8 @@ Haskell Preamble
 >   , testJacobi6
 >   , bndFnEg3
 >   , runSolver
+>   , s5
+>   , s9
 >   ) where
 >
 > import Data.Array.Repa                   as R
@@ -205,8 +205,6 @@ Haskell Preamble
 
 > import Data.Packed.Matrix
 > import Numeric.LinearAlgebra.Algorithms
-
-> import Text.PrettyPrint.HughesPJClass ( render )
 
 > import Chap1Aux
 
@@ -294,13 +292,14 @@ has a binding to [LAPACK](http://www.netlib.org/lapack/).
 
 First we create a $4 \times 4$ matrix in *hmatrix* form
 
-> simpleEgN :: Int
+> simpleEgN, simpleEgN2 :: Int
 > simpleEgN = 4 - 1
->
+> simpleEgN2 = (simpleEgN - 1) * (simpleEgN - 1)
+
 > matHMat4 :: IO (Matrix Double)
 > matHMat4 = do
 >   matRepa <- computeP $ mkJacobiMat simpleEgN :: IO (Array U DIM2 Double)
->   return $ (simpleEgN - 1) >< (simpleEgN - 1) $ toList matRepa
+>   return $ simpleEgN2 >< simpleEgN2 $ toList matRepa
 
     [ghci]
     matHMat4
@@ -694,43 +693,27 @@ We create a function to run a solver.
 >   initArr <- mkInitArrM nGrid
 >   solver nIter mask val initArr
 
-> foo = do
->   exact <- analyticValue 7
->   jacobi5 <- runSolver 7 200 bndFnEg3 (solveLaplaceStencil 200 fivePoint)
->   jacobi9 <- runSolver 7 200 bndFnEg3 (solveLaplaceStencil 200 ninePoint)
->   putStrLn $ render $ pPrint $ R.map abs $ (exact -^ jacobi5)
->   putStrLn $ render $ pPrint $ R.map abs $ (exact -^ jacobi9)
+And put the five point and nine point solvers in the appropriate form.
 
-> exact :: Int -> Int -> IO (Array U DIM2 Double)
-> exact n m = computeP $ fromFunction (Z :. (n + 1) :. (m + 1)) f
->   where
->     f (Z :. i :. j) = y / ((1 + x)^2 + y^2)
->       where
->         x = fromIntegral i / fromIntegral n
->         y = fromIntegral j / fromIntegral m
+> s5, s9 :: Monad m =>
+>           Int ->
+>           Array U DIM2 Double ->
+>           Array U DIM2 Double ->
+>           Array U DIM2 Double ->
+>           m (Array U DIM2 Double)
+> s5 n = solveLaplaceStencil n fivePoint 4
+> s9 n = solveLaplaceStencil n ninePoint 20
 
-> solveLaplaceStencil9 :: Monad m
->                        => Int
->                        -> Array U DIM2 Double
->                        -> Array U DIM2 Double
->                        -> Array U DIM2 Double
->                        -> m (Array U DIM2 Double)
-> solveLaplaceStencil9 !steps !arrBoundMask !arrBoundValue !arrInit
->  = go steps arrInit
->  where
->    go 0 !arr = return arr
->    go n !arr
->      = do arr' <- relaxLaplace arr
->           go (n - 1) arr'
->
->    relaxLaplace arr
->      = computeP
->      $ R.szipWith (+) arrBoundValue
->      $ R.szipWith (*) arrBoundMask
->      $ R.smap (/ 20)
->      $ mapStencil2 (BoundConst 0)
->      ninePoint arr
+And now we can see that the errors between the analytic solution and
+the five point method with a grid size of 8 are $\cal{O}(10^{-4})$.
 
+    [ghci]
+    liftA2 (-^) (analyticValue 7) (runSolver 7 200 bndFnEg3 s5) >>= return . pPrint
+
+But using the nine point method significantly improves this.
+
+    [ghci]
+    liftA2 (-^) (analyticValue 7) (runSolver 7 200 bndFnEg3 s9) >>= return . pPrint
 
 Bibliography
 ============
