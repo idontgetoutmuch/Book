@@ -33,9 +33,15 @@ is lists of lists. We can capture this using type synonyms.
 
 First let us multiply a vector by a matrix. Let us ignore the
 implementation to start with and just focus on the type
-signature. First we note that Haskell can infer this type; we do not
+signature.
+
+First we note that Haskell can infer this type; we do not
 actually need to give it although this is a good check the
 implementation in some sense satisfies its specification.
+
+Here is the function without a type signature. Ignore the
+implementation and note below that we can ask ghci to tell us the
+type.
 
 > matTimesVecNoSig m v = result
 >   where
@@ -46,12 +52,13 @@ implementation in some sense satisfies its specification.
 >              else error $ "Matrix has rows of length " ++ show lrs ++
 >                           " but vector is of length " ++ show l
 
-For example, we can ask ghci to tell us the type
-
     [ghci]
     :t matTimesVecNoSig
 
-> matTimesVec :: Num a => Matrix a -> Vector a -> Vector a
+Notice that ghci does not know to use the type synonyms; we have
+introduced them purely as an aid for the reader.
+
+> matTimesVec :: Num a => Matrix a -> (Vector a -> Vector a)
 > matTimesVec m v = result
 >   where
 >     lrs = map length m
@@ -60,3 +67,8 @@ For example, we can ask ghci to tell us the type
 >              then map (\r -> sum $ zipWith (*) r v) m
 >              else error $ "Matrix has rows of length " ++ show lrs ++
 >                           " but vector is of length " ++ show l
+
+First, notice that we have made the implicit brackets in the type
+signature explicit. Ignoring *Num a =>* for the time being, we see
+that *matTimesVec* takes a matrix a returns a function which itself
+takes a vector and returns a vector.
