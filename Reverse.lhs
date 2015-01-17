@@ -12,10 +12,9 @@ paper about dependent typing in Haskell "Hasochism":
 
 In trying to resurrect the Haskell package
 [yarr](http://www.stackage.org/package/yarr), it seemed that a
-dependently typed reverse function needed to be written.
-
-Writing such a function turns out to be far from straightforward. How
-GHC determines that a proof (program) discharges a proposition (type
+dependently typed reverse function needed to be written. Writing such
+a function turns out to be far from straightforward. How GHC
+determines that a proof (program) discharges a proposition (type
 signature) is rather opaque and perhaps not surprisingly the error
 messages one gets if the proof is incorrect are far from easy to
 interpret.
@@ -37,6 +36,7 @@ helpful to think about them in this way).
 > {-# LANGUAGE TypeFamilies         #-}
 > {-# LANGUAGE UndecidableInstances #-}
 > {-# LANGUAGE ExplicitForAll       #-}
+> {-# LANGUAGE TypeOperators        #-}
 
 For both implementations, we need propositional equality: if `a :~:
 b`{.haskell} is inhabited by some terminating value, then the type
@@ -71,6 +71,9 @@ We need the usual singleton for `Nat`{.haskell} to tie types and terms together.
 
 Now we can prove some lemmas.
 
+First a lemma showing we can push `+`{.haskell} inside a successor,
+`S`{.haskell}.
+
 > succ_plus_id :: SNat n1 -> SNat n2 -> (((S n1) :+ n2) :~: (S (n1 :+ n2)))
 > succ_plus_id SZero _ = Refl
 > succ_plus_id (SSucc n) m = gcastWith (succ_plus_id n (SSucc m)) Refl
@@ -85,17 +88,27 @@ this:
 3. So `S Z :+ n2 = S (Z + n2)`{.haskell}
 
 * For `SSucc`{.haskell}
-1. `SSucc n :: SNat (S k)`{.haskell} so `n :: SNat k`{.haskell} and `m :: SNat i so SSucc m :: SNat (S i)`{.haskell}
+1. `SSucc n :: SNat (S k)`{.haskell} so `n :: SNat k`{.haskell} and `m :: SNat i`{.haskell} so `SSucc m :: SNat (S i)`{.haskell}
 2. `succ_plus id n (SSucc m) :: k ~ S p => S p :+ S i :~: S (p :+ S i)`{.haskell} (by hypothesis)
 3. `k ~ S p => S p :+ S i :~: S (S p :+ i)`{.haskell} (by axiom 2)
 4. `k :+ S i :~: S (k :+ i)`{.haskell} (by substitution)
-5. `S k :+   i :~: S (k :+ i)`{.haskell} (by axiom 2)
+5. `S k :+ i :~: S (k :+ i)`{.haskell} (by axiom 2)
 
-
+Second a lemma showing that `Z`{.haskell} is also the right unit.
 
 > plus_id_r :: SNat n -> ((n :+ Z) :~: n)
 > plus_id_r SZero = Refl
-> plus_id_r (SSucc x) = gcastWith (plus_id_r x) (succ_plus_id x SZero)
+> plus_id_r (SSucc n) = gcastWith (plus_id_r n) (succ_plus_id n SZero)
+
+* For `SZero`{.haskell}
+1. `Z :+ Z = Z`{.haskell} (by axiom 1)
+
+* For `SSucc`{.haskell}
+1. `SSucc n :: SNat (S k)`{.haskell} so `n :: SNat k`{.haskell}
+2. `plus_id_r n :: k :+ Z :~: k`{.haskell} (by hypothesis)
+3. `succ_plus_id n SZero :: S k :+ Z :~: S (k + Z)`{.haskell} (by the `succ_plus_id`{.haskell} lemma)
+4. `succ_plus_id n SZero :: k :+ Z ~ k => S k :+ Z :~: S k`{.haskell} (by substitution)
+5. `plus_id_r n :: k :+ Z :~: k`{.haskell} (by equation 2)
 
 > infixr 4 :::
 
